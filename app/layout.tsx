@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: "정비사업 지도 · HAENGLIM",
   description: "서울 재개발·재건축 정비구역을 지도에서 보고, 구역별 사업 현황과 관련 고시·공고로 바로 연결합니다.",
   applicationName: "HAENGLIM 정비사업 지도",
+  // 허브 앱 창에서 넘어와도 창 아이콘이 바뀌지 않도록 허브와 같은 H 아이콘 사용
+  icons: { icon: [{ url: "/icons/hub-192.png", sizes: "192x192", type: "image/png" }] },
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, maximumScale: 1, themeColor: "#ffffff" };
