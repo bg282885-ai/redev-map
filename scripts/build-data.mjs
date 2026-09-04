@@ -668,8 +668,24 @@ async function main() {
   }
   const zoneNorm = zones.map((z) => ({ z, n: normName(z.properties.name), c: centerOf(z.properties.bbox) }));
 
-  const seoulList = (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" }));
-  const list = [...seoulList, ...(await fetchGyeonggi()), ...(await fetchIncheon())];
+  // 출처별 수집 — 실패(해외 IP 차단·타임아웃 등)하거나 0건이면 이전 projects.json 의 그 시도 사업장을 그대로 유지
+  const prevProjects = readJson(path.join(OUT, "projects.json")) ?? [];
+  const prevMeta = readJson(path.join(OUT, "meta.json"));
+  async function collect(sido, key, fn) {
+    try {
+      const rows = await fn();
+      if (rows.length) return rows;
+      throw new Error("0건");
+    } catch (e) {
+      const keep = Array.isArray(prevProjects) ? prevProjects.filter((p) => p.sido === sido) : [];
+      console.warn(`  ! ${sido} 수집 실패(${String(e.message).slice(0, 60)}) → 이전 자료 ${keep.length}건 유지`);
+      if (prevMeta?.sources?.[key]) SOURCE_INFO[key] = prevMeta.sources[key];
+      return keep;
+    }
+  }
+  const seoulList = await collect("서울", "cleanup", async () => (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" })));
+  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon))];
+  if (!list.length) throw new Error("사업장 자료를 하나도 얻지 못함");
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
   seedGeoCacheFromPrevious();
 
