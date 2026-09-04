@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HAENGLIM 정비사업 지도 (redev-map)
 
-## Getting Started
+서울·경기·인천 재개발·재건축 **정비구역을 지도에서 보고**, 구역이나 사업장을 누르면 **진행 현황·사업 개요·결정고시 원문·관련 고시/공고**가 바로 뜨는 웹앱.
+Next.js 16 + Tailwind 4 + Leaflet. 개발 포트 **3007**. 첫 진입 시 HAENGLIM 인트로(실제 구역 경계가 그려지는 연출, 세션당 1회, 클릭 스킵).
 
-First, run the development server:
+## 화면
+
+- 상단: 검색(구역명·사업장명·지번), 시도(서울·경기·인천)·시군구, 사업구분 / 진행단계 / 구역유형 칩 필터, 배경지도(V-World 기본·위성 / OSM), 구역·사업장 표시 토글
+- 왼쪽: 필터 결과 목록(사업장 + 이름이 맞는 정비구역), 범례
+- 지도: 정비구역 폴리곤(유형별 색), 사업장 마커(진행단계별 색). 클릭 → 오른쪽 상세 패널
+- 상세 패널: 바로가기(정보몽땅 사업장·도시계획포털 지도·대지 법령 검토·네이버지도·뉴스·링크 복사) → 정비구역 정보 → **결정고시 원문(PDF/HWP)·도면** → 사업 개요(정보몽땅) → 관련 고시·공고 목록 + 검색 링크
+- 공유 링크: `?p=사업장id` / `?z=구역id`
+
+## 데이터 출처와 흐름
+
+| 자료 | 출처 | 방식 |
+| --- | --- | --- |
+| 서울 정비구역 폴리곤 (1,835개) | 서울 열린데이터광장 **「서울시 의제처리구역 위치정보」(OA-20957)** SHP, 연 2회 갱신 | `scripts/build-data.mjs` 가 내려받아 EPSG:5174→WGS84 변환·10% 단순화 → `public/data/zones.geojson` |
+| 경기·인천 정비구역 폴리곤 (46개, 부분) | **V-World 2D 데이터 API `LT_C_UPISUQ161`(지구단위계획구역)** 중 이름에 재개발·재건축·정비구역·촉진이 있는 것 | 경기·인천은 정비구역 경계 공개 파일이 없어 정비구역 지정 시 함께 결정된 지구단위계획구역 경계로 대신함. 없는 곳은 마커만 |
+| 서울 사업장 (1,158건) | **정비사업 정보몽땅** 사업장검색 (자치구별 HTML) | 같은 스크립트가 수집 → 대표지번을 V-World 지오코더로 좌표화 → 구역과 결합 → `public/data/projects.json` |
+| 경기 사업장 (533건) | **경기데이터드림 「일반 정비 사업 추진 현황」** 시트(`searchSheetData.do`, 세션 쿠키+CSRF, 키 불필요) | 시군·구역명·위치·면적·유형·단계·세대수·인가 일자·용적률·담당 전화까지 → 상세 패널 "사업 현황" |
+| 인천 사업장 (167건) | **공공데이터포털 15055212 「인천광역시 도시 및 주거환경 정비사업 추진현황」** CSV, 월간 | 구·구역명·위치·면적·유형·단계. 2026-07 행정구역 개편(중구·동구→제물포구, 서구→서해구 등) 전 이름이라 지오코딩 때 새 이름으로 바꿔 시도 |
+| 결정고시 원문 | **서울 도시계획포털** `ntfc/getNtfcDt.json` (고시번호 코드 = SHP `NTFC_SN`) | `/api/ntfc?code=` 실시간 조회, 24h 캐시 |
+| 사업 개요·위치도 | 정보몽땅 사업장 페이지(공개 화면) | `/api/project?cafe=` 실시간 조회, 24h 캐시 |
+| 관련 고시·공고 | 정보몽땅 고시/공고 게시판 + 토지이음 고시정보(시군구별 최근 목록) | `/api/gosi?n=구역명&gu=코드&dong=동` 제목을 구역명으로 걸러서 반환, 6h 캐시 |
+| 배경지도 | V-World WMTS | `/api/tile/{Base|Satellite|Hybrid}/{z}/{y}/{x}` 프록시(키 비노출, CDN 캐시). 키 없으면 OSM 으로 자동 전환 |
+
+구역 ↔ 사업장 결합 순서: ① 정보몽땅 지도 코드 = 결정고시 관리코드(`WTNNC_SN`) ② 대표지번 좌표가 들어 있는 구역(같은 시도) ③ 구역명 유사도(좌표 있으면 3km 이내).
+2026-09-04 기준: 서울 1,158건(좌표 1,136·구역 연결 569) · 경기 533건(좌표 461·구역 43) · 인천 167건(좌표 163·구역 0). 결정고시 원문·정보몽땅 사업개요·도시계획포털 지도는 서울만, 토지이음 고시·시도/시군구 고시 검색은 전 지역.
+
+## 최신 고시와 업데이트 알림
+
+- **최신 고시**: 구역·사업장을 열면 정보몽땅 게시판, 토지이음 고시, 서울 도시계획포털 결정고시 검색(`ntfc/getNtfcList.json`, 제목 키워드)을 함께 읽어 구역명이 맞는 것 중 **가장 최근 고시**를 맨 위에 보여 주고, 서울은 그 고시의 원문(PDF/HWP)·도면을 바로 엽니다. 경계 자료(반기 갱신)의 결정고시보다 새 고시가 있으면 그 사실을 표시합니다.
+- **업데이트(종 아이콘)**: ① 자료 변경 — `build:data` 가 돌 때 이전 `public/data` 와 비교해 신규 구역·신규 사업장·진행단계 변경·구역 연결 등을 `public/data/changes.json` 에 누적(1년, 400건). ② 최근 정비 고시 — `/api/recent` 가 도시계획포털 최근 결정고시 + 토지이음(서울·경기·인천 본청) + 정보몽땅 게시판에서 정비 관련 제목만 골라 최근 60일치를 보여 줍니다. 마지막으로 연 시각(localStorage)보다 새 항목 수가 배지로 뜹니다.
+- **자동 갱신**: `.github/workflows/update-data.yml` 이 매주 월요일 03:00(KST) 자료를 다시 수집해 바뀐 `public/data` 만 커밋합니다(GitHub 저장소에 `VWORLD_API_KEY`, `VWORLD_DOMAIN` 시크릿 필요). 서울시 SHP 는 데이터셋 페이지에서 최신 파일 순번을 자동으로 찾습니다.
+
+## 실행
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # VWORLD_API_KEY, VWORLD_DOMAIN
+npm run build:data           # 자료 갱신 (SHP·정보몽땅·지오코딩, 2~3분. data/raw 에 캐시)
+npm run dev                  # http://localhost:3007
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `VWORLD_API_KEY` 는 배경지도 프록시와 자료 빌드(지오코딩)에만 쓰인다. 없어도 앱은 OSM 배경으로 동작한다(단, `public/data` 가 이미 있어야 함).
+- SHP 최신 파일 순번이 바뀌면 `SEOUL_UQ181_SEQ` 환경변수로 지정(데이터셋 페이지 `downloadFile('9')` 의 숫자).
+- `FORCE=1 npm run build:data` 로 정보몽땅 목록 캐시를 무시하고 다시 수집.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 배포 (Vercel)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`public/data/*` 를 커밋해 두면 빌드 시 별도 수집이 필요 없다. 환경변수 `VWORLD_API_KEY`, `VWORLD_DOMAIN=<배포 도메인>` 을 넣고, V-World 인증키의 서비스 URL 에 배포 도메인을 등록한다.
 
-## Learn More
+## 주의
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 구역 경계와 정보는 참고용이며 법적 효력이 없다(서울시 자료 고지). 정확한 내용은 고시문과 사업장 공개자료로 확인.
+- 정보몽땅·토지이음·도시계획포털은 공개 화면을 읽는 방식이라 사이트 개편 시 `lib/gosi.ts`, `lib/cleanup.ts`, `lib/ntfc.ts` 수정이 필요할 수 있다.

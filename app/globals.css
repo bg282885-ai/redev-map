@@ -1,26 +1,340 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-brand: #ec6c1e;
+  --font-sans: "Pretendard", "Pretendard Variable", -apple-system, BlinkMacSystemFont, "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+html,
+body {
+  height: 100%;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+/* Leaflet */
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: #eef0f3;
+}
+.leaflet-tooltip.rm-tip {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.leaflet-tooltip.rm-tip::before {
+  display: none;
+}
+.leaflet-control-zoom a {
+  color: #333;
+}
+.leaflet-control-attribution {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* 스크롤바 */
+.rm-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #c9ccd1 transparent;
+}
+.rm-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.rm-scroll::-webkit-scrollbar-thumb {
+  background: #c9ccd1;
+  border-radius: 8px;
+}
+
+/* 컴포넌트 클래스는 components 레이어에 두어 hidden/md:inline-flex 같은 유틸리티가 이기도록 한다 */
+@layer components {
+/* 칩 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid #d9dce1;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.2;
+  color: #333;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+.chip:hover {
+  background: #f5f6f8;
+}
+.chip.on {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+}
+.chip .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: none;
+}
+.chip .sq {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+  opacity: 0.85;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid #d9dce1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn:hover {
+  background: #f5f6f8;
+}
+.btn.primary {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: #fff;
+}
+.btn.primary:hover {
+  filter: brightness(0.95);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+}
+
+/* ================================================================== */
+/*  진입 인트로 (components/SplashIntro.tsx)                             */
+/*  html.hl-splash 가 있을 때만 보인다 — public/splash-init.js 가 붙임     */
+/* ================================================================== */
+html.hl-splash {
+  overflow: hidden;
+}
+.splash {
+  display: none;
+}
+html.hl-splash .splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-sans);
+}
+html.hl-splash .splash.splash-out {
+  animation: splash-out 650ms cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+@keyframes splash-out {
+  to {
+    opacity: 0;
+    transform: translateY(-2%);
+  }
+}
+.splash-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(86vw, 520px);
+}
+
+/* 1) 지도 조각 */
+.splash-map {
+  position: relative;
+  width: min(72vw, 340px);
+  aspect-ratio: 5 / 3.4;
+  margin-bottom: 8px;
+  animation: splash-map-back 900ms cubic-bezier(0.6, 0, 0.3, 1) 1.55s forwards;
+}
+@keyframes splash-map-back {
+  to {
+    transform: translateY(-14px) scale(0.88);
+    opacity: 0.32;
+  }
+}
+.splash-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(#e8eaee 1px, transparent 1px), linear-gradient(90deg, #e8eaee 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse at center, #000 45%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 45%, transparent 78%);
+  opacity: 0;
+  animation: splash-fade-in 500ms ease-out 0.05s forwards;
+}
+@keyframes splash-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+.splash-shape {
+  position: absolute;
+  overflow: visible;
+  transform: rotate(var(--rot));
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.08));
+}
+.splash-shape path {
+  fill: currentColor;
+  fill-opacity: 0;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-dasharray: 400;
+  stroke-dashoffset: 400;
+  animation:
+    splash-draw 1050ms cubic-bezier(0.4, 0, 0.2, 1) calc(0.15s + var(--i) * 0.18s) forwards,
+    splash-fill 600ms ease-out calc(0.95s + var(--i) * 0.18s) forwards;
+}
+@keyframes splash-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes splash-fill {
+  to {
+    fill-opacity: 0.3;
+  }
+}
+/* 2) 마커 */
+.splash-dot {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  transform: scale(0);
+  animation: splash-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(1.15s + var(--i) * 0.07s) forwards;
+}
+@keyframes splash-pop {
+  to {
+    transform: scale(1);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* 3) 워드마크: 글자가 아래에서 튕겨 오르며 순서대로 */
+.splash-word {
+  display: flex;
+  align-items: flex-end;
+  font-weight: 900;
+  font-size: clamp(42px, 9vw, 80px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--color-brand);
+}
+.splash-letter {
+  display: block;
+  height: 1em;
+  opacity: 0;
+  transform: translateY(0.45em);
+  animation: splash-rise 520ms cubic-bezier(0.2, 1.2, 0.4, 1) calc(1.75s + var(--i) * 0.055s) forwards;
+}
+@keyframes splash-rise {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 4) 밑줄·제목·부서 */
+.splash-underline {
+  width: 100%;
+  height: 3px;
+  margin-top: 12px;
+  background: #111;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: splash-line 1100ms cubic-bezier(0.65, 0, 0.2, 1) 2.45s forwards;
+}
+@keyframes splash-line {
+  to {
+    transform: scaleX(1);
+  }
+}
+.splash-title {
+  margin-top: 12px;
+  font-size: clamp(17px, 3.2vw, 24px);
+  font-weight: 800;
+  color: #111;
+  letter-spacing: 0.7em;
+  opacity: 0;
+  animation: splash-title 900ms cubic-bezier(0.2, 0.8, 0.2, 1) 2.6s forwards;
+}
+@keyframes splash-title {
+  to {
+    letter-spacing: 0.06em;
+    opacity: 1;
+  }
+}
+.splash-dept {
+  margin-top: 6px;
+  font-size: clamp(11px, 2vw, 13px);
+  font-weight: 600;
+  color: #6b7280;
+  letter-spacing: 0.9em;
+  opacity: 0;
+  animation: splash-dept 1000ms cubic-bezier(0.2, 0.8, 0.2, 1) 2.95s forwards;
+}
+@keyframes splash-dept {
+  to {
+    letter-spacing: 0.34em;
+    opacity: 1;
+  }
+}
+.splash-hint {
+  position: absolute;
+  bottom: 28px;
+  font-size: 11px;
+  color: #9ca3af;
+  opacity: 0;
+  animation: splash-fade-in 600ms ease-out 1.2s forwards;
+}
+
+@keyframes rm-skel {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: 200px 0;
+  }
+}
+.skel {
+  background: linear-gradient(90deg, #f0f1f3 25%, #e4e6ea 37%, #f0f1f3 63%);
+  background-size: 400px 100%;
+  animation: rm-skel 1.2s infinite linear;
+  border-radius: 6px;
 }

@@ -1,0 +1,45 @@
+# 자료 자동 갱신: 매주 월요일 03:00 KST (일요일 18:00 UTC) + 수동 실행
+# - 서울시 의제처리구역 SHP(최신 파일 자동 감지), 정보몽땅 사업장, 경기데이터드림, 인천시 CSV, V-World 폴리곤을 다시 수집
+# - 이전 public/data 와 비교해 public/data/changes.json 에 변경 내역을 쌓고, 바뀐 파일만 커밋 → Vercel 이 자동 재배포
+name: update-data
+on:
+  schedule:
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 지오코딩 결과 캐시 (data/raw 는 git 에 없음) — 매번 1,800건을 다시 묻지 않도록
+      - uses: actions/cache@v4
+        with:
+          path: data/raw/geocode.json
+          key: geocode-${{ github.run_id }}
+          restore-keys: geocode-
+      - name: 자료 수집
+        env:
+          VWORLD_API_KEY: ${{ secrets.VWORLD_API_KEY }}
+          VWORLD_DOMAIN: ${{ secrets.VWORLD_DOMAIN }}
+          FORCE: "1"
+        run: npm run build:data
+      - name: 변경 커밋
+        run: |
+          git config user.name "data-bot"
+          git config user.email "data-bot@users.noreply.github.com"
+          git add public/data
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "data: 자료 갱신 $(date -u +%Y-%m-%d)"
+            git push
+          fi

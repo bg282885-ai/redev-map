@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated raw data (rebuild with npm run build:data)
+/data/raw/
+
+!.env.example
+/.claude/
