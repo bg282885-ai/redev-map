@@ -10,6 +10,13 @@ try {
   }
   if ((force || !sessionStorage.getItem("rm_splash_seen")) && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
     document.documentElement.classList.add("hl-splash");
+    // 앱 CSS 가 도착하기 전에 본문이 잠깐 보이는 것을 막는 흰색 덮개. 인트로(z 100) 아래, 본문 위.
+    // 인트로가 걷히기 시작하면(.splash-out) 덮개도 같이 사라져 페이드가 본문으로 이어진다
+    var st = document.createElement("style");
+    st.textContent =
+      "html.hl-splash::before{content:'';position:fixed;inset:0;z-index:99;background:#fff}" +
+      "html.hl-splash:has(.splash-out)::before{display:none}";
+    (document.head || document.documentElement).appendChild(st);
   }
 } catch (e) {
   /* sessionStorage 를 못 쓰는 환경이면 인트로 생략 */
