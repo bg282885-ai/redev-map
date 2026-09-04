@@ -132,7 +132,7 @@ body {
 
 /* ================================================================== */
 /*  진입 인트로 (components/SplashIntro.tsx)                             */
-/*  html.hl-splash 가 있을 때만 보인다 — public/splash-init.js 가 붙임     */
+/*  html.hl-splash 가 있을 때만 보인다 — lib/splash-gate.ts 인라인 스크립트가 붙임     */
 /* ================================================================== */
 html.hl-splash {
   overflow: hidden;

@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { SplashIntro } from "@/components/SplashIntro";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
+import { SPLASH_GATE } from "@/lib/splash-gate";
 
 export const metadata: Metadata = {
   title: "정비사업 지도 · HAENGLIM",
@@ -21,8 +21,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
           crossOrigin="anonymous"
         />
-        {/* 진입 인트로 게이트: hydration 전에 실행되어 첫 방문 세션이면 <html class="hl-splash"> 를 붙임 */}
-        <Script src="/splash-init.js" strategy="beforeInteractive" />
+        {/* 진입 인트로 게이트: 본문이 그려지기 전에 동기 실행되어 <html class="hl-splash"> + 흰 덮개를 붙임 */}
+        <script dangerouslySetInnerHTML={{ __html: SPLASH_GATE }} />
       </head>
       <body className="h-full overflow-hidden bg-white text-gray-900">
         <SplashIntro />

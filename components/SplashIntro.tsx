@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
  * 2) 진행단계 색 마커가 톡톡 찍힌다
  * 3) 지도 조각이 뒤로 물러나며 HAENGLIM 워드마크가 글자별로 떠오른다
  * 4) 밑줄이 그어지고 "정비사업 지도"·"도시정비사업본부"가 자간을 좁히며 모인다
- * - public/splash-init.js 가 sessionStorage 를 보고 <html class="hl-splash"> 를 미리 붙여 깜빡임 없이 표시
+ * - lib/splash-gate.ts(layout 인라인 스크립트) 가 sessionStorage 를 보고 <html class="hl-splash"> 를 미리 붙여 깜빡임 없이 표시
  * - 끝나면(또는 클릭하면) 걷히고, 같은 세션에서는 다시 나오지 않음. prefers-reduced-motion 이면 생략
  */
 export const SPLASH_KEY = "rm_splash_seen";

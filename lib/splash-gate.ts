@@ -1,3 +1,8 @@
+/**
+ * 진입 인트로 게이트 — app/layout.tsx 의 <head> 에 인라인 동기 <script> 로 넣는다.
+ * (next/script 의 beforeInteractive 는 App Router 에서 런타임이 나중에 불러와 본문이 먼저 그려지므로 쓰지 않음)
+ */
+export const SPLASH_GATE = String.raw`
 // 진입 인트로 게이트: 첫 방문 세션(또는 허브에서 ?intro=1 로 들어온 경우)이고 모션 축소 설정이 아니면
 // 그리기 전에 <html class="hl-splash"> 를 붙인다. intro 파라미터는 새로고침 때 다시 뜨지 않도록 주소에서 지운다
 try {
@@ -21,3 +26,4 @@ try {
 } catch (e) {
   /* sessionStorage 를 못 쓰는 환경이면 인트로 생략 */
 }
+`;
