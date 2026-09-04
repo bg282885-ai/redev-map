@@ -203,11 +203,15 @@ async function fetchCleanupList() {
 /* ------------------------------------------------------------------ */
 const geoCachePath = path.join(RAW, "geocode.json");
 const geoCache = fs.existsSync(geoCachePath) ? JSON.parse(fs.readFileSync(geoCachePath, "utf8")) : {};
+// V-World 는 해외 IP(GitHub Actions 러너 등)에 HTML 차단 페이지를 돌려준다. 연속 실패하면 차단으로 보고
+// 남은 지오코딩을 건너뛴다(주소당 15초씩 재시도하면 수천 건에 몇 시간이 걸림). 좌표는 캐시·이전 자료로 유지
+let vworldFails = 0;
+let vworldDown = false;
 
 async function geocode(address, type = "PARCEL") {
   const ck = type === "ROAD" ? `ROAD:${address}` : address;
   if (ck in geoCache) return geoCache[ck];
-  if (!VWORLD_KEY) return null;
+  if (!VWORLD_KEY || vworldDown) return null;
   const u = new URL("https://api.vworld.kr/req/address");
   u.search = new URLSearchParams({
     service: "address", request: "getcoord", version: "2.0", crs: "EPSG:4326", type,
@@ -219,11 +223,18 @@ async function geocode(address, type = "PARCEL") {
       const p = j.response?.result?.point;
       const v = p ? { lng: +(+p.x).toFixed(6), lat: +(+p.y).toFixed(6) } : null;
       geoCache[ck] = v;
+      vworldFails = 0;
       await sleep(70); // 연속 호출 시 차단 방지
       return v;
     } catch (e) {
       // 잠시 차단되면 HTML 이 오거나 fetch 가 실패한다 → 쉬었다가 재시도
-      if (attempt === 3) console.warn("  지오코딩 오류", address, e.message);
+      if (attempt === 3) {
+        console.warn("  지오코딩 오류", address, e.message);
+        if (++vworldFails >= 3) {
+          vworldDown = true;
+          console.warn("  V-World 응답이 계속 실패(해외 IP 차단?) → 남은 지오코딩 생략, 캐시·이전 좌표 사용");
+        }
+      }
       await sleep(2500 * attempt);
     }
   }
@@ -584,6 +595,7 @@ async function fetchVworldZones() {
   const BOX = "BOX(126.3,36.9,127.9,38.3)"; // 수도권
   const filters = ["재개발", "재건축", "정비구역", "촉진구역", "주거환경", "도시환경"];
   const byId = new Map();
+  try {
   for (const f of filters) {
     for (let page = 1; page <= 5; page++) {
       const u = new URL("https://api.vworld.kr/req/data");
@@ -602,6 +614,17 @@ async function fetchVworldZones() {
       if (feats.length < 1000) break;
       await sleep(200);
     }
+  }
+  } catch (e) {
+    // 해외 IP 차단 등으로 실패하면 캐시 → 이전 public/data 의 V-World 구역을 그대로 유지
+    console.warn("  V-World 폴리곤 수집 실패:", e.message.slice(0, 80));
+    if (fs.existsSync(cache)) {
+      console.warn("  → data/raw 캐시 사용");
+      return JSON.parse(fs.readFileSync(cache, "utf8"));
+    }
+    const prev = readJson(path.join(OUT, "zones.geojson"))?.features?.filter((z) => z.properties?.src === "vworld") ?? [];
+    console.warn(`  → 이전 자료의 경기·인천 구역 ${prev.length}개 유지`);
+    return prev;
   }
   const out = [...byId.values()].map((x) => {
     const p = x.properties;
@@ -648,6 +671,7 @@ async function main() {
   const seoulList = (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" }));
   const list = [...seoulList, ...(await fetchGyeonggi()), ...(await fetchIncheon())];
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
+  seedGeoCacheFromPrevious();
 
   const projects = [];
   let stat = { geo: 0, byMap: 0, byPoint: 0, byName: 0, zoneLoc: 0, none: 0 };
@@ -770,6 +794,28 @@ async function main() {
   }
   console.log("· 결과", stat, bySido);
   console.log(`  projects.json ${(fs.statSync(path.join(OUT, "projects.json")).size / 1e3).toFixed(0)} KB`);
+
+  /** 이전 projects.json 에서 지오코딩으로 얻은 좌표를 캐시에 미리 넣어 V-World 없이도 기존 사업장 좌표가 유지되게 한다 */
+  function seedGeoCacheFromPrevious() {
+    const prev = readJson(path.join(OUT, "projects.json"));
+    if (!Array.isArray(prev)) return;
+    let n = 0;
+    for (const p of prev) {
+      if (p.locSrc !== "geocode" || p.lat == null || p.lng == null) continue;
+      const cands =
+        p.sido === "서울"
+          ? addressCandidates(p.gu, p.jibun).map((address) => ({ address, type: "PARCEL" }))
+          : locCandidates(SIDO_FULL[p.sido], p.gu, p.loc);
+      if (!cands.length) continue;
+      const c = cands[0];
+      const ck = c.type === "ROAD" ? `ROAD:${c.address}` : c.address;
+      if (!(ck in geoCache)) {
+        geoCache[ck] = { lng: p.lng, lat: p.lat };
+        n++;
+      }
+    }
+    if (n) console.log(`  이전 자료 좌표 ${n}건을 지오코딩 캐시에 선적재`);
+  }
 
   function geoCacheHit(p) {
     const cands =
