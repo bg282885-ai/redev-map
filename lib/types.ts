@@ -63,7 +63,8 @@ export type Project = {
   map: string | null;
   lat: number | null;
   lng: number | null;
-  locSrc: "geocode" | "zone" | null;
+  /** geocode=대표지번 지오코딩, place=단지명 장소 검색(지번 없음·합병), zone=구역 중심, emd=법정동 중심(준공 후 지번 합병) */
+  locSrc: "geocode" | "place" | "zone" | "emd" | null;
   zoneId: string | null;
   zoneFid: string | null;
   zoneHow: "map" | "point" | "name" | null;

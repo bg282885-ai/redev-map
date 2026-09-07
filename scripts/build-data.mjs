@@ -153,6 +153,14 @@ async function fetchCleanupList() {
   }
   SOURCE_INFO.cleanup = new Date().toISOString().slice(0, 10);
   console.log("· 정보몽땅 사업장 목록 수집 (자치구 25개)");
+  // 정보몽땅이 간헐적으로 특정 자치구에 빈 목록을 돌려준다(2026-09-08 광진구 20건이 통째로 빠짐) → 그 구는 이전 목록 유지
+  const prevList = fs.existsSync(cache) ? JSON.parse(fs.readFileSync(cache, "utf8")) : [];
+  for (const p of readJson(path.join(OUT, "projects.json")) ?? []) {
+    if (p.sido === "서울" && !prevList.some((q) => q.no === p.no)) {
+      const { no, gu, kind, name, jibun, stage, docs, cafe, map } = p;
+      prevList.push({ no, gu, kind, name, jibun, stage, docs, cafe, map });
+    }
+  }
   const out = [];
   for (const [code, name] of Object.entries(GU)) {
     // 자치구별 목록의 번호는 그 목록 안에서만 유일 → 사업장 id 는 자치구코드+번호 로 만든다
@@ -169,6 +177,14 @@ async function fetchCleanupList() {
       await sleep(1500 * attempt);
     }
     await sleep(400);
+    if (!rows.length) {
+      const keep = prevList.filter((p) => Math.floor(p.no / 1000) === +code);
+      if (keep.length) {
+        console.warn(`  ! ${name}: 빈 목록 응답 → 이전 자료 ${keep.length}건 유지`);
+        out.push(...keep);
+        continue;
+      }
+    }
     let n = 0;
     for (const r of rows) {
       const tds = [...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((x) =>
@@ -239,6 +255,120 @@ async function geocode(address, type = "PARCEL") {
     }
   }
   return null;
+}
+
+/**
+ * 장소(POI) 검색 폴백 — V-World search(type=place). 위치 열이 비어 있거나("경기도 광명시 nan") 준공 후 지번이
+ * 합병되어 지오코딩이 안 되는 아파트 단지(하안주공5단지·철산주공13단지 등)를 단지명으로 찾는다.
+ * 결과는 같은 시군구 안에 있고 제목이 단지명을 포함하는 것만 받는다(정류장·경로당·상가 등 부속시설은 뒤로).
+ */
+const PLACE_NOISE = /(정류장|버스|입구|경로당|노인정|관리소|관리사무소|상가|어린이집|유치원|학교|주차장|사거리|삼거리)/;
+async function searchPlace(query, sidoFull, gu, core) {
+  const ck = `PLACE:${query}`;
+  if (ck in geoCache) return geoCache[ck];
+  if (!VWORLD_KEY || vworldDown) return null;
+  const u = new URL("https://api.vworld.kr/req/search");
+  u.search = new URLSearchParams({
+    service: "search", request: "search", version: "2.0", crs: "EPSG:4326", size: "10", page: "1",
+    query, type: "place", format: "json", errorformat: "json", key: VWORLD_KEY,
+  }).toString();
+  const head = `${sidoFull} ${gu.split(" ")[0]}`;
+  const norm = (s) => (s ?? "").replace(/\(.*?\)/g, "").replace(/아파트|APT|\s|[·,.\-]/gi, "");
+  const c = norm(core);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const j = await (await fetch(u, { headers: { Referer: `https://${VWORLD_DOMAIN}/`, "User-Agent": UA } })).json();
+      const items = (j.response?.result?.items ?? []).filter((it) => {
+        const addr = it.address?.parcel ?? it.address?.road ?? "";
+        if (!addr.startsWith(head)) return false;
+        const t = norm(it.title);
+        return c.length >= 3 && (t.includes(c) || c.includes(t));
+      });
+      // 제목이 단지명과 같은 것 → 부속시설이 아닌 것 → 나머지
+      items.sort((a, b) => score(b) - score(a));
+      function score(it) {
+        const t = norm(it.title);
+        return (t === c ? 4 : 0) + (PLACE_NOISE.test(it.title) ? 0 : 2) + (it.title.includes("/") ? 0 : 1);
+      }
+      const it = items[0];
+      const v = it?.point ? { lng: +(+it.point.x).toFixed(6), lat: +(+it.point.y).toFixed(6) } : null;
+      geoCache[ck] = v;
+      vworldFails = 0;
+      await sleep(70);
+      return v;
+    } catch (e) {
+      if (attempt === 3) {
+        console.warn("  장소 검색 오류", query, e.message);
+        if (++vworldFails >= 3) vworldDown = true;
+      }
+      await sleep(2500 * attempt);
+    }
+  }
+  return null;
+}
+
+/**
+ * 법정동 중심 폴백 — V-World search(type=district, category=L4). 준공 후 지번이 합병되어 지번·단지명 모두 못 찾는
+ * 사업장(하안주공본1단지 등)을 법정동 중심에라도 표시한다(패널에 "동 중심" 안내).
+ */
+async function searchDistrict(fullDong) {
+  const ck = `EMD:${fullDong}`;
+  if (ck in geoCache) return geoCache[ck];
+  if (!VWORLD_KEY || vworldDown) return null;
+  const u = new URL("https://api.vworld.kr/req/search");
+  u.search = new URLSearchParams({
+    service: "search", request: "search", version: "2.0", crs: "EPSG:4326", size: "3", page: "1",
+    query: fullDong, type: "district", category: "L4", format: "json", errorformat: "json", key: VWORLD_KEY,
+  }).toString();
+  try {
+    const j = await (await fetch(u, { headers: { Referer: `https://${VWORLD_DOMAIN}/`, "User-Agent": UA } })).json();
+    const it = (j.response?.result?.items ?? []).find((x) => x.title === fullDong) ?? j.response?.result?.items?.[0];
+    const v = it?.point && it.title.endsWith(fullDong.split(" ").pop()) ? { lng: +(+it.point.x).toFixed(6), lat: +(+it.point.y).toFixed(6) } : null;
+    geoCache[ck] = v;
+    await sleep(70);
+    return v;
+  } catch (e) {
+    console.warn("  법정동 검색 오류", fullDong, e.message);
+    return null;
+  }
+}
+
+/** 지오코딩 후보 주소("경기도 광명시 철산3동 233", "… 철산동 233")에서 법정동 경로 목록("경기도 광명시 철산3동", "… 철산동")을 만든다 */
+function dongsOf(cands) {
+  const out = [];
+  for (const c of cands) {
+    if (c.type !== "PARCEL") continue;
+    const d = c.address.replace(/\s*(산\s*)?\d+(-\d+)?\s*$/, "").trim();
+    if (/(동|가|리|읍|면)$/.test(d) && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+/**
+ * 사업장 이름 → 장소 검색어 목록. "하안주공3·4단지"→["하안주공3단지","하안주공4단지"], "철산주공10,11단지"→…,
+ * "영통 2구역(매탄주공 4,5단지)"→괄호 안 단지명 우선. 단지·아파트·주공 등 건물 이름으로 볼 수 있는 것만 만든다
+ * (구역명("중1", "덕천")으로 검색하면 엉뚱한 곳이 잡히므로 제외).
+ */
+function placeQueries(gu, name) {
+  const out = [];
+  const inner = [...(name ?? "").matchAll(/\(([^)]+)\)/g)].map((m) => m[1]);
+  const outer = (name ?? "").replace(/\(.*?\)/g, " ").replace(/\s+/g, " ").trim();
+  for (const s of [...inner, outer]) {
+    if (!/(주공|단지|아파트|APT|연립|빌라|맨션|주택|타운|빌리지)/i.test(s)) continue;
+    const base = s.replace(/\s*(재건축|재개발|정비사업|정비구역|주변|일대|일원)\s*/g, " ").replace(/\s+/g, " ").trim();
+    // "3·4단지", "4,5단지", "본1단지" → 단지별로 나눠서
+    const m = base.match(/^(.*?)(\d+(?:\s*[·,\/]\s*\d+)+)\s*단지(.*)$/);
+    if (m) {
+      for (const n of m[2].split(/\s*[·,\/]\s*/)) out.push(`${m[1]}${n}단지${m[3]}`.replace(/\s+/g, " ").trim());
+    } else out.push(base);
+  }
+  // "현대아파트"처럼 브랜드만 있는 이름은 시 안에 여러 곳이라 엉뚱한 단지가 잡힘 → 숫자나 3자 이상 고유 이름이 있어야 검색
+  const specific = (q) => {
+    const stem = q.replace(/\s*(아파트|APT|단지|연립|빌라|맨션|주택|타운|빌리지)\s*$/i, "");
+    return /\d/.test(stem) || stem.replace(/[^가-힣]/g, "").length >= 3;
+  };
+  const uniq = [...new Set(out.filter((q) => q.replace(/\s/g, "").length >= 3 && specific(q)))];
+  return uniq.map((q) => ({ query: `${gu.split(" ")[0]} ${q}`, core: q }));
 }
 
 /** "개포동 138", "신길동 1583-1", "OO동 산 12-3" → 지오코딩 후보 주소들 (정확→느슨) */
@@ -690,7 +820,7 @@ async function main() {
   seedGeoCacheFromPrevious();
 
   const projects = [];
-  let stat = { geo: 0, byMap: 0, byPoint: 0, byName: 0, zoneLoc: 0, none: 0 };
+  let stat = { geo: 0, place: 0, emd: 0, byMap: 0, byPoint: 0, byName: 0, zoneLoc: 0, none: 0 };
   let i = 0;
   for (const p of list) {
     i++;
@@ -708,6 +838,26 @@ async function main() {
       if (loc) break;
     }
     if (loc) stat.geo++;
+    // 지번으로 못 찾으면(위치 열이 비었거나 준공 후 지번 합병) 단지명으로 장소 검색 (2026-09-08, 광명 하안주공 등)
+    let byPlace = false, byEmd = false;
+    if (!loc) {
+      for (const q of placeQueries(p.gu, p.name)) {
+        loc = await searchPlace(q.query, SIDO_FULL[p.sido], p.gu, q.core);
+        if (loc) {
+          byPlace = true;
+          stat.place++;
+          break;
+        }
+      }
+    }
+    // 그래도 없고 준공·청산된 곳(지번 합병)이면 법정동 중심 — 구역 결합(아래)이 되면 구역 중심이 우선
+    let emdLoc = null;
+    if (!loc && /준공|청산|해산|완료|이전고시/.test(p.stage ?? "")) {
+      for (const d of dongsOf(cands)) {
+        emdLoc = await searchDistrict(d);
+        if (emdLoc) break;
+      }
+    }
     const pn = normName(p.name);
 
     let zone = null, how = null;
@@ -748,6 +898,11 @@ async function main() {
       loc = centerOf(zone.properties.bbox);
       stat.zoneLoc++;
     }
+    if (!loc && emdLoc) {
+      loc = emdLoc;
+      byEmd = true;
+      stat.emd++;
+    }
     if (!loc) stat.none++;
 
     const emd = p.sido === "서울" ? emdCodeOf(p.gu, p.jibun) : null;
@@ -761,8 +916,9 @@ async function main() {
       pnu: emd?.pnu ?? null,
       kind: p.kind,
       name: p.name,
-      jibun: p.jibun || (p.loc ? p.loc.replace(/\s*일원|\s*일대/g, "").slice(0, 40) : ""),
-      loc: p.loc ?? "",
+      // 경기 시트는 위치가 비면 "경기도 광명시 nan" 으로 옴 → 빈 값으로
+      jibun: p.jibun || (p.loc && !/\bnan$/i.test(p.loc) ? p.loc.replace(/\s*일원|\s*일대/g, "").slice(0, 40) : ""),
+      loc: /\bnan$/i.test(p.loc ?? "") ? "" : (p.loc ?? ""),
       area: p.area ?? null,
       extra: p.extra ?? undefined,
       stage: p.stage,
@@ -771,7 +927,7 @@ async function main() {
       map: p.map,
       lat: loc?.lat ?? null,
       lng: loc?.lng ?? null,
-      locSrc: loc ? (how && !geoCacheHit(p) ? "zone" : "geocode") : null,
+      locSrc: loc ? (byPlace ? "place" : byEmd ? "emd" : how && !geoCacheHit(p) ? "zone" : "geocode") : null,
       zoneId: zone?.properties.id ?? null,
       zoneFid: zone?.properties.fid ?? null,
       zoneHow: how,
@@ -817,7 +973,29 @@ async function main() {
     if (!Array.isArray(prev)) return;
     let n = 0;
     for (const p of prev) {
-      if (p.locSrc !== "geocode" || p.lat == null || p.lng == null) continue;
+      if (p.lat == null || p.lng == null) continue;
+      if (p.locSrc === "place") {
+        // 단지명 장소 검색으로 얻은 좌표도 첫 검색어 키로 선적재 (러너에서 V-World 가 막혀도 유지)
+        const q = placeQueries(p.gu, p.name)[0];
+        if (q && !(`PLACE:${q.query}` in geoCache)) {
+          geoCache[`PLACE:${q.query}`] = { lng: p.lng, lat: p.lat };
+          n++;
+        }
+        continue;
+      }
+      if (p.locSrc === "emd") {
+        const d = dongsOf(
+          p.sido === "서울"
+            ? addressCandidates(p.gu, p.jibun).map((address) => ({ address, type: "PARCEL" }))
+            : locCandidates(SIDO_FULL[p.sido], p.gu, p.loc),
+        )[0];
+        if (d && !(`EMD:${d}` in geoCache)) {
+          geoCache[`EMD:${d}`] = { lng: p.lng, lat: p.lat };
+          n++;
+        }
+        continue;
+      }
+      if (p.locSrc !== "geocode") continue;
       const cands =
         p.sido === "서울"
           ? addressCandidates(p.gu, p.jibun).map((address) => ({ address, type: "PARCEL" }))

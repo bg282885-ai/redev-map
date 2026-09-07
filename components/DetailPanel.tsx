@@ -238,6 +238,8 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
             <p className="mt-1 text-[11px] text-gray-400">
               {project.source === "경기도" ? "경기도 일반 정비사업 추진현황(공공데이터포털)" : "인천광역시 도시 및 주거환경 정비사업 추진현황(공공데이터포털, 월간)"} 기준.
               {project.locSrc === "geocode" ? " 마커는 위치 열의 첫 지번을 지오코딩한 지점입니다." : ""}
+              {project.locSrc === "place" ? " 원자료에 위치(지번)가 없어 마커는 단지명으로 검색한 지점입니다." : ""}
+              {project.locSrc === "emd" ? " 준공 후 지번이 합병되어 옛 지번을 찾을 수 없어, 마커는 법정동 중심에 표시한 대략 위치입니다." : ""}
             </p>
           </Card>
         )}
@@ -263,7 +265,7 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
               {sido === "서울"
                 ? "서울시 의제처리구역 자료에서 대응하는 구역 폴리곤을 찾지 못했습니다. 정비구역 지정 전(정비계획 수립·안전진단 단계)이거나 가로주택·소규모 사업일 수 있습니다."
                 : `${sido} 정비구역 경계는 공개 파일이 없어, V-World 지구단위계획 레이어에 정비구역 이름으로 올라온 곳만 표시됩니다. 경계는 토지이음(토지이용계획 열람)에서 지번으로 확인할 수 있습니다.`}
-              {project.locSrc === "geocode" ? " 마커는 대표지번 위치입니다." : ""}
+              {project.locSrc === "geocode" ? " 마커는 대표지번 위치입니다." : project.locSrc === "place" ? " 마커는 단지명으로 검색한 위치입니다." : project.locSrc === "emd" ? " 마커는 법정동 중심의 대략 위치입니다(옛 지번 합병)." : ""}
             </p>
           </Card>
         )}
