@@ -391,8 +391,11 @@ function addressCandidates(gu, jibun) {
 const STRIP =
   /주택재건축정비사업조합|재건축정비사업조합|재개발정비사업조합|정비사업조합|정비사업|정비구역|재정비촉진구역|촉진구역|재개발사업|재건축사업|주택재건축|주택재개발|도시환경정비|도시정비형|주택정비형|공공재개발|공공재건축|재건축|재개발|추진위원회|조합|아파트|사업|구역|지구|정비|공공|일대|일원|번지|주택|제(?=\d)/g;
 
+/** ①②③… → 1 2 3 (정보몽땅 사업장 이름 "특별계획구역③") */
+const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
 export function normName(s) {
   return (s ?? "")
+    .replace(/[①-⑳]/g, (c) => String(CIRCLED.indexOf(c) + 1))
     .replace(/\([^)]*\)/g, " ")
     .replace(STRIP, "")
     .replace(/[\s·ㆍ,\-_.~'’"“”]/g, "")
@@ -417,6 +420,9 @@ function containsToken(a, b) {
 function nameScore(a, b) {
   if (!a || !b) return 0;
   if (a === b) return 1;
+  // 둘 다 숫자가 있으면 숫자열이 같아야 한다 — "압구정특별계획2" 와 "압구정특별계획5" 는 다른 구역 (2026-09-08 압구정 1·3·4·5구역이 2구역에 묶이던 문제)
+  const na = a.match(/\d+/g), nb = b.match(/\d+/g);
+  if (na && nb && na.join(",") !== nb.join(",")) return 0;
   if (containsToken(a, b) || containsToken(b, a)) return Math.min(a.length, b.length) / Math.max(a.length, b.length) * 0.9 + 0.05;
   // 공통 접두 길이 비율
   let k = 0;
@@ -781,7 +787,110 @@ async function fetchVworldZones() {
 }
 
 /* ------------------------------------------------------------------ */
+/**
+ * 정비구역 폴리곤이 없는 재건축 단지 → 대표지번 필지 경계 (V-World 연속지적도 LP_PA_CBND_BUBUN).
+ * 압구정 3·4·5구역처럼 조합은 있는데 정비구역이 아직 지정되지 않은(또는 SHP 에 없는) 단지가 지도에 점으로만 보이던 문제
+ * (2026-09-08 부팀장 지적). 아파트 단지는 대지 한 필지가 단지 경계와 거의 같으므로 지목 '대' 이고 면적이 충분할 때만 쓴다
+ * (재개발·단독주택 재건축의 대표지번은 500~2,000㎡ 짜리 한 필지라 제외). 재개발 구역은 필지 여러 개라 이 방법이 맞지 않는다.
+ */
+const PARCEL_KIND = /재건축|리모델링/;
+const PARCEL_MIN_AREA = (kind) => (/소규모/.test(kind) ? 1500 : 3000);
+const parcelCachePath = path.join(RAW, "parcels.json");
+let parcelDown = false;
+
+/** 위경도 폴리곤 면적(㎡) — 위도 보정한 평면 근사 (수도권 범위에서 0.1% 이내) */
+function areaM2(g) {
+  const rings = g.type === "Polygon" ? [g.coordinates[0]] : g.coordinates.map((p) => p[0]);
+  let A = 0;
+  for (const r of rings) {
+    if (!r?.length) continue;
+    const kx = 111320 * Math.cos((r[0][1] * Math.PI) / 180), ky = 110540;
+    let s = 0;
+    for (let i = 0; i < r.length - 1; i++) s += r[i][0] * kx * (r[i + 1][1] * ky) - r[i + 1][0] * kx * (r[i][1] * ky);
+    A += Math.abs(s) / 2;
+  }
+  return A;
+}
+
+async function fetchParcel(p, cache) {
+  const ck = p.pnu ? `pnu:${p.pnu}` : `pt:${p.lng},${p.lat}`;
+  if (ck in cache) return cache[ck];
+  if (!VWORLD_KEY || parcelDown) return undefined;
+  const u = new URL("https://api.vworld.kr/req/data");
+  const o = { service: "data", request: "GetFeature", data: "LP_PA_CBND_BUBUN", key: VWORLD_KEY, domain: VWORLD_DOMAIN, format: "json", size: "3", page: "1", crs: "EPSG:4326" };
+  if (p.pnu) o.attrFilter = `pnu:=:${p.pnu}`;
+  else o.geomFilter = `POINT(${p.lng} ${p.lat})`;
+  u.search = new URLSearchParams(o).toString();
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const j = await (await fetch(u, { headers: { Referer: `https://${VWORLD_DOMAIN}/`, "User-Agent": UA } })).json();
+      const st = j.response?.status;
+      if (st === "ERROR") throw new Error(j.response?.error?.text ?? "V-World 오류");
+      const f = j.response?.result?.featureCollection?.features?.[0];
+      let v = null;
+      if (f?.geometry) {
+        const jibun = (f.properties?.jibun ?? "").trim();
+        const area = Math.round(areaM2(f.geometry));
+        // 지목이 '대'(대지)이고 단지 규모일 때만
+        if (/대$/.test(jibun) && area >= PARCEL_MIN_AREA(p.kind)) {
+          const round = (c) => (typeof c[0] === "number" ? c.map((x) => +x.toFixed(6)) : c.map(round));
+          v = { geometry: { type: f.geometry.type, coordinates: round(f.geometry.coordinates) }, pnu: f.properties.pnu, jibun, addr: f.properties.addr, area };
+        } else v = { skip: `${jibun || "지목?"} ${area}㎡` };
+      }
+      cache[ck] = v;
+      await sleep(80);
+      return v;
+    } catch (e) {
+      if (attempt === 3) {
+        console.warn("  필지 조회 오류", p.name, e.message);
+        if (++vworldFails >= 3) parcelDown = true;
+      }
+      await sleep(2000 * attempt);
+    }
+  }
+  return undefined;
+}
+
+async function addParcelZones(projects, zones, prevZones) {
+  const cands = projects.filter((p) => !p.zoneFid && p.lat != null && p.lng != null && PARCEL_KIND.test(p.kind) && !/소규모재개발/.test(p.kind));
+  console.log(`· 정비구역 폴리곤 없는 재건축·리모델링 단지 ${cands.length}건 → 대표지번 필지 경계 (V-World 지적도)`);
+  const cache = fs.existsSync(parcelCachePath) ? JSON.parse(fs.readFileSync(parcelCachePath, "utf8")) : {};
+  const prevByFid = new Map((prevZones?.features ?? []).filter((f) => f.properties?.src === "parcel").map((f) => [f.properties.fid, f]));
+  let n = 0, kept = 0, skipped = 0;
+  for (const p of cands) {
+    const fid = `P${p.no}`;
+    let feat = null;
+    const r = await fetchParcel(p, cache);
+    if (r?.geometry) {
+      const g = r.geometry;
+      feat = {
+        type: "Feature",
+        geometry: g,
+        properties: {
+          fid, id: fid, name: p.name, code: /소규모/.test(p.kind) ? "UQ1280" : "UQ1240", gu: p.guCode ?? "", area: r.area, ntfc: "",
+          bbox: bbox(g).map((v) => +v.toFixed(6)), sido: p.sido ?? "서울", src: "parcel", pnu: r.pnu ?? null, jibun: r.addr ?? r.jibun ?? "",
+        },
+      };
+      n++;
+    } else if (r === undefined && prevByFid.has(fid)) {
+      // V-World 를 못 쓰는 환경(러너)에서는 이전 자료의 필지 경계 유지
+      feat = prevByFid.get(fid);
+      kept++;
+    } else if (r?.skip) skipped++;
+    if (feat) {
+      zones.push(feat);
+      p.zoneFid = fid;
+      p.zoneId = fid;
+      p.zoneHow = "parcel";
+    }
+  }
+  fs.writeFileSync(parcelCachePath, JSON.stringify(cache));
+  console.log(`  필지 경계 ${n}건${kept ? ` (+이전 자료 유지 ${kept})` : ""}, 규모·지목 미달로 제외 ${skipped}건`);
+}
+
 async function main() {
+  // 변경 비교용 이전 구역 자료 (zones.geojson 은 아래에서 덮어쓰므로 먼저 읽는다)
+  const prevZones = readJson(path.join(OUT, "zones.geojson"));
   const shp = await downloadShp();
   const seoulZones = await buildZones(shp);
   for (const z of seoulZones) {
@@ -790,8 +899,7 @@ async function main() {
   }
   const extraZones = await fetchVworldZones();
   const zones = [...seoulZones, ...extraZones];
-  fs.writeFileSync(path.join(OUT, "zones.geojson"), JSON.stringify({ type: "FeatureCollection", features: zones }));
-  console.log(`  구역 합계 ${zones.length}개, ${(fs.statSync(path.join(OUT, "zones.geojson")).size / 1e6).toFixed(2)} MB`);
+  console.log(`  구역 합계 ${zones.length}개 (서울 SHP ${seoulZones.length} + V-World ${extraZones.length})`);
   const byId = new Map();
   for (const z of zones) {
     if (!byId.has(z.properties.id)) byId.set(z.properties.id, []);
@@ -936,8 +1044,13 @@ async function main() {
   }
   fs.writeFileSync(geoCachePath, JSON.stringify(geoCache));
 
+  /* ---- 정비구역 폴리곤이 없는 재건축 단지는 대표지번 필지 경계로 ---- */
+  await addParcelZones(projects, zones, prevZones);
+  fs.writeFileSync(path.join(OUT, "zones.geojson"), JSON.stringify({ type: "FeatureCollection", features: zones }));
+  console.log(`  zones.geojson ${zones.length}개, ${(fs.statSync(path.join(OUT, "zones.geojson")).size / 1e6).toFixed(2)} MB`);
+
   /* ---- 이전 자료와 비교해 변경 내역(신규 구역·사업장, 단계 변경) 기록 ---- */
-  const changes = diffAgainstPrevious(zones, projects);
+  const changes = diffAgainstPrevious(zones, projects, prevZones);
 
   fs.writeFileSync(path.join(OUT, "projects.json"), JSON.stringify(projects));
   fs.writeFileSync(
@@ -1027,9 +1140,12 @@ async function main() {
  * - 사업장: 시도|시군구|이름 기준 신규/삭제, 진행단계·사업구분 변경
  * 항목 { ts, type, sido, gu, name, no?, fid?, from?, to? } — 최근 400건, 1년까지 보관
  */
-function diffAgainstPrevious(zones, projects) {
+function diffAgainstPrevious(zones, projects, prevZ) {
   const prevP = readJson(path.join(OUT, "projects.json"));
-  const prevZ = readJson(path.join(OUT, "zones.geojson"));
+  // 필지 경계(src parcel)는 사업장에 딸린 보조 도형이라 구역 변경 비교에서 뺀다
+  const isZone = (f) => f.properties?.src !== "parcel";
+  zones = zones.filter(isZone);
+  if (prevZ?.features) prevZ = { ...prevZ, features: prevZ.features.filter(isZone) };
   const logPath = path.join(OUT, "changes.json");
   const log = readJson(logPath) ?? { entries: [] };
   const ts = new Date().toISOString();
@@ -1046,7 +1162,7 @@ function diffAgainstPrevious(zones, projects) {
       else {
         if ((q.stage || "") !== (p.stage || "")) push({ type: "stage-changed", sido: p.sido, gu: p.gu, name: p.name, no: p.no, from: q.stage, to: p.stage });
         if ((q.kind || "") !== (p.kind || "")) push({ type: "kind-changed", sido: p.sido, gu: p.gu, name: p.name, no: p.no, from: q.kind, to: p.kind });
-        if (!q.zoneFid && p.zoneFid) push({ type: "zone-linked", sido: p.sido, gu: p.gu, name: p.name, no: p.no, fid: p.zoneFid });
+        if (!q.zoneFid && p.zoneFid && p.zoneHow !== "parcel") push({ type: "zone-linked", sido: p.sido, gu: p.gu, name: p.name, no: p.no, fid: p.zoneFid });
       }
     }
     for (const [k, q] of prevMap) if (!curMap.has(k)) push({ type: "project-removed", sido: q.sido, gu: q.gu, name: q.name, from: q.stage });

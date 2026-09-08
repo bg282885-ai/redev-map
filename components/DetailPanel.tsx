@@ -169,7 +169,7 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
                 : ""}
             {project && zp && project.zoneHow && (
               <span className="ml-1 text-gray-400">
-                · 구역 연결: {project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}
+                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
               </span>
             )}
           </p>
@@ -244,7 +244,17 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
           </Card>
         )}
 
-        {zp && (
+        {zp && zp.src === "parcel" && (
+          <Card title="단지 경계 (대표지번 필지)">
+            <Row k="필지" v={zp.jibun || "-"} />
+            <Row k="대지면적" v={fmtArea(zp.area)} />
+            {zp.pnu && <Row k="PNU" v={zp.pnu} mono />}
+            <p className="mt-1 text-[11px] text-gray-400">
+              정비구역이 아직 지정되지 않았거나 서울시 구역 자료에 없는 단지입니다. 표시한 경계는 V-World 연속지적도의 대표지번 필지(대지)이며, 정비구역 경계가 아닙니다.
+            </p>
+          </Card>
+        )}
+        {zp && zp.src !== "parcel" && (
           <Card title="정비구역" onTitleClick={sel.type === "project" ? () => onSelectZone(zp.fid) : undefined}>
             <Row k="구역명" v={zp.name || "-"} />
             <Row k="유형" v={codeLabel(zp.code)} />

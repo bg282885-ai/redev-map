@@ -18,8 +18,11 @@ export type ZoneProps = {
   bbox: BBox;
   /** 시도 (서울·경기·인천). 없으면 서울 */
   sido?: Sido;
-  /** 자료 출처: seoul = 서울시 의제처리구역 SHP, vworld = V-World 지구단위계획(UPIS) 레이어 */
-  src?: "seoul" | "vworld";
+  /** 자료 출처: seoul = 서울시 의제처리구역 SHP, vworld = V-World 지구단위계획(UPIS) 레이어, parcel = 대표지번 필지(정비구역 미지정 재건축 단지, V-World 지적도) */
+  src?: "seoul" | "vworld" | "parcel";
+  /** parcel 일 때 필지 PNU·주소 */
+  pnu?: string | null;
+  jibun?: string;
 };
 
 export type Sido = "서울" | "경기" | "인천";
@@ -67,7 +70,8 @@ export type Project = {
   locSrc: "geocode" | "place" | "zone" | "emd" | null;
   zoneId: string | null;
   zoneFid: string | null;
-  zoneHow: "map" | "point" | "name" | null;
+  /** map=정보몽땅 고시코드, point=대표지번이 구역 안, name=구역명 유사, parcel=정비구역 없어 대표지번 필지 경계를 씀 */
+  zoneHow: "map" | "point" | "name" | "parcel" | null;
 };
 
 export type DataMeta = {

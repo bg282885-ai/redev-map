@@ -65,6 +65,8 @@ function zoneStyle(f: ZoneFeature, dim: boolean): L.PathOptions {
   if (cat === "촉진지구") return { color, weight: 2, dashArray: "6 4", fillColor: color, fillOpacity: dim ? 0.02 : 0.05, opacity: dim ? 0.5 : 0.9 };
   // 완공·과거 구역(dim)은 옅은 회색 테두리에 연한 채움으로 진행 중 구역과 구분
   if (dim) return { color: "#9CA3AF", weight: 1, dashArray: "3 3", fillColor: color, fillOpacity: 0.08, opacity: 0.7 };
+  // 대표지번 필지 경계(정비구역 미지정 단지)는 점선으로 — 정비구역과 구분
+  if (f.properties.src === "parcel") return { color, weight: 1.6, dashArray: "5 3", fillColor: color, fillOpacity: 0.18, opacity: 0.95 };
   return { color, weight: 1.4, fillColor: color, fillOpacity: 0.28, opacity: 0.95 };
 }
 

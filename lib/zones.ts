@@ -248,8 +248,10 @@ export function fmtArea(m2: number) {
 const STRIP =
   /주택재건축정비사업조합|재건축정비사업조합|재개발정비사업조합|정비사업조합|정비사업|정비구역|재정비촉진구역|촉진구역|재개발사업|재건축사업|주택재건축|주택재개발|도시환경정비|도시정비형|주택정비형|공공재개발|공공재건축|재건축|재개발|추진위원회|조합|아파트|사업|구역|지구|정비|공공|일대|일원|번지|주택|제(?=\d)/g;
 
+const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
 export function normName(s: string | null | undefined) {
   return (s ?? "")
+    .replace(/[①-⑳]/g, (c) => String(CIRCLED.indexOf(c) + 1))
     .replace(/\([^)]*\)/g, " ")
     .replace(STRIP, "")
     .replace(/[\s·ㆍ,\-_.~'’"“”]/g, "")
