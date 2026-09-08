@@ -1133,7 +1133,77 @@ const gwangmyeongAdapter = {
     };
   },
 };
-const PORTAL_ADAPTERS = [seochoAdapter, gwangmyeongAdapter];
+/* ── 어댑터 3: 경기도 정비사업 온누리시스템 「조합 정보공개 홈페이지」 목록 (경기 전역, 추진주체가 홈페이지를 연 사업장 286건, 2026-09-09) ──
+ *  index.do 세션 쿠키 + 페이지 안 X-CSRF-TOKEN → POST /onnuri/mbiz/boss/info/biz/ajaxGetBizaraList.do (sigunSeCd=&emdCd=) → message[]:
+ *  bizaraId(GHMT_…), bizaraNm, rprsvLotno("경기도 시흥시 신현동(포동) 2번지 일원"), bizTypeNm(재개발·재건축), bizaraStepNm(추진주체 구성 전·추진위원회·조합(시행자)·청산위원회),
+ *  bizaraPrgrsStepNm(정비예정구역지정·재건축진단·정비구역지정 전/후·조합설립인가·…·이전고시), sigunSeNm("안양시 만안구"), zoneArea, enfcMthdNm, landOwnerCnt, mdfcnDt.
+ *  경기데이터드림 시트가 늦거나 안 싣는 초기 단계(정비예정구역·재건축진단·정비구역지정 전 추진위)를 보충한다. 사업 홈페이지 main.do 의 '주요 추진경과'
+ *  (li "정비예정구역지정 [기본계획수립(변경)고시] 2024.03.18 …")를 상세로 읽어 동향·이력으로 쓴다. 폴리곤은 재건축만 필지 폴백(경기 재개발 경계 자료 없음). */
+const ONNURI = {
+  site: "경기도 정비사업 온누리시스템", index: "https://www.gg.go.kr/onnuri/index.do",
+  list: "https://www.gg.go.kr/onnuri/mbiz/boss/info/biz/ajaxGetBizaraList.do", home: (id) => `https://www.gg.go.kr/onnuri/mbiz/home/${id}/main.do`,
+};
+function onnuriStage(body, prgrs) {
+  body = body ?? "";
+  prgrs = prgrs ?? "";
+  if (/청산/.test(body)) return prgrs || "조합청산";
+  if (/추진위/.test(body)) return /지정 전/.test(prgrs) ? "추진위원회(정비구역지정 전)" : "추진위원회승인";
+  if (/구성 전/.test(body)) return /재건축진단/.test(prgrs) ? "안전진단(재건축진단)" : /예정/.test(prgrs) ? "정비예정구역" : prgrs || "추진주체 구성 전";
+  return prgrs || body;
+}
+async function fetchOnnuriList() {
+  const r = await fetch(ONNURI.index, { headers: { "User-Agent": UA, "Accept-Language": "ko" } });
+  const html = await r.text();
+  const cookie = (r.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  const token = html.match(/X-CSRF-TOKEN",\s*"([^"]+)"/)?.[1];
+  if (!token) throw new Error("CSRF 토큰 없음");
+  const r2 = await fetch(ONNURI.list, {
+    method: "POST", headers: { ...PORTAL_HEADERS, "X-CSRF-TOKEN": token, "X-Requested-With": "XMLHttpRequest", Cookie: cookie, Referer: ONNURI.index }, body: "sigunSeCd=&emdCd=",
+  });
+  const j = JSON.parse(await r2.text());
+  if (j.result !== "Y" || !Array.isArray(j.message)) throw new Error("응답 형식");
+  return j.message
+    .map((x) => ({
+      id: x.bizaraId, name: (x.bizaraNm ?? "").trim(), kindRaw: x.bizTypeNm ?? "", sigun: (x.sigunSeNm ?? "").trim(),
+      // "경기도 안양시 만안구 안양9동(안양동) 737번지 일원" → 법정동으로 "안양동 737번지 일원"
+      jibun: (x.rprsvLotno ?? "").replace(/^경기도\s+/, "").replace(/^\S+시\s+/, "").replace(/^\S+구\s+/, "").replace(/^\S+\(([^)]+)\)\s*/, "$1 ").trim(),
+      body: x.bizaraStepNm ?? "", prgrs: x.bizaraPrgrsStepNm ?? "", stage: onnuriStage(x.bizaraStepNm, x.bizaraPrgrsStepNm),
+      area: numOf(x.zoneArea), method: x.enfcMthdNm ?? "", owners: numOf(x.landOwnerCnt), updated: (x.mdfcnDt ?? "").slice(0, 10), infoCnt: numOf(x.infoRlsCnt),
+    }))
+    .filter((x) => x.id && x.name && x.sigun);
+}
+async function fetchOnnuriHistory(id) {
+  const html = await (await fetch(ONNURI.home(id), { headers: { "User-Agent": UA, "Accept-Language": "ko" } })).text();
+  const out = [];
+  for (const m of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)) {
+    const h = stripTags(m[1]).match(/^([가-힣·\s]{2,20}?)\s*\[([^\]]*)\]\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?\s*(.*)$/);
+    if (h) out.push({ step: h[1].trim(), sub: h[2].trim(), date: `${h[3]}-${h[4].padStart(2, "0")}-${h[5].padStart(2, "0")}`, text: h[6].trim() });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+const onnuriAdapter = {
+  id: "onnuri", sido: "경기", site: ONNURI.site, url: ONNURI.index,
+  guOf: (r) => r.sigun.split(" ")[0], // "안양시 만안구" → 시트·앱의 시군 이름 "안양시"
+  list: fetchOnnuriList,
+  kindOf: (r) => (/재건축/.test(r.kindRaw) ? "재건축" : /재개발/.test(r.kindRaw) ? "재개발" : null),
+  enrich: (r) => fetchOnnuriHistory(r.id),
+  build(r, hist, kind) {
+    hist = Array.isArray(hist) ? hist : [];
+    const latest = hist[hist.length - 1];
+    const url = ONNURI.home(r.id);
+    const extra = [["추진주체", `${r.body}${r.prgrs ? ` · ${r.prgrs}` : ""}`]];
+    if (r.method) extra.push(["시행방식", r.method]);
+    if (r.owners) extra.push(["토지등소유자", `${r.owners.toLocaleString()}명`]);
+    if (hist.length) extra.push(["추진경과", hist.map((h) => `${h.date} ${h.step}${h.sub ? `(${h.sub})` : ""}`).join(" · ")]);
+    extra.push(["출처", `${ONNURI.site} 조합 정보공개 홈페이지 · ${r.sigun}${r.infoCnt ? ` · 정보공개 ${r.infoCnt}건` : ""}${r.updated ? ` · 갱신 ${r.updated}` : ""}`]);
+    return {
+      kind, name: r.name, jibun: r.jibun, loc: `경기도 ${r.sigun} ${r.jibun}`, stage: r.stage, area: r.area || null, docs: "", extra, hist,
+      note: latest ? { date: latest.date, kw: latest.step, title: `${ONNURI.site} 추진경과`, url, src: PORTAL_SOURCE } : null,
+      portal: { gu: r.sigun, site: ONNURI.site, url, id: r.id },
+    };
+  },
+};
+const PORTAL_ADAPTERS = [seochoAdapter, gwangmyeongAdapter, onnuriAdapter];
 
 /** 이름 비교 키: 정규화 이름에서 구분 기호까지 뺀 것 ("철산주공10,11단지" = "철산주공10·11단지") */
 const portalNameKey = (s) => normName(s).replace(/[·,/\s]/g, "");
@@ -1146,8 +1216,11 @@ export async function fetchGuPortals(existing, prevProjects) {
   const prevKeep = (Array.isArray(prevProjects) ? prevProjects : []).filter((p) => p.source === PORTAL_SOURCE);
   const used = new Set(existing.map((p) => p.no));
   const out = [];
+  // 앞 어댑터가 만든 기록도 뒤 어댑터의 이름 비교 대상에 넣는다(광명시청 하안주공 ↔ 온누리 하안주공)
+  const pool = [...existing];
   let newest = "";
   for (const A of PORTAL_ADAPTERS) {
+    const outStart = out.length;
     const cachePath = portalCachePath(A.id);
     let cache = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : { fetchedAt: "", list: [], details: {} };
     cache.details ??= {};
@@ -1164,7 +1237,7 @@ export async function fetchGuPortals(existing, prevProjects) {
         cache = { ...cache, fetchedAt: new Date().toISOString(), list };
         fs.writeFileSync(cachePath, JSON.stringify(cache));
       } catch (e) {
-        const keep = prevKeep.filter((p) => p.portal?.gu === A.gu);
+        const keep = prevKeep.filter((p) => p.portal?.site === A.site);
         console.warn(`  ! 목록 실패(${String(e.message).slice(0, 60)}) → ${list.length ? `캐시 ${list.length}건 사용` : `이전 자료 ${keep.length}건 유지`}`);
         if (!list.length) {
           out.push(...keep);
@@ -1173,8 +1246,13 @@ export async function fetchGuPortals(existing, prevProjects) {
       }
     }
     if (cache.fetchedAt > newest) newest = cache.fetchedAt;
-    const exRows = existing.filter((p) => (p.sido ?? "서울") === A.sido && p.gu === A.gu).map((p) => ({ p, n: portalNameKey(p.name), kc: kindClass(p.kind) }));
-    let done = 0, dup = 0, outOfScope = 0, detailFail = 0, enriched = 0, added = 0;
+    // 어댑터가 한 시군구(서초구·광명시)이거나 행마다 시군이 다르다(온누리) → 시군 이름별로 원자료 행을 모아 이름 비교
+    const exBySido = pool.filter((p) => (p.sido ?? "서울") === A.sido).map((p) => ({ p, n: portalNameKey(p.name), kc: kindClass(p.kind) }));
+    const exByGu = new Map();
+    const exRowsOf = (gu) => exByGu.get(gu) ?? exByGu.set(gu, exBySido.filter((x) => x.p.gu === gu)).get(gu);
+    // 같은 사업으로 보는 이름: 키 일치, 유사도 ≥0.7, 또는 한쪽이 다른 쪽에 통째로 들어 있고 짧은 쪽에 숫자가 있음("113-6" ⊂ "권선113-6구역"; "수택" ⊂ "수택E" 는 제외)
+    const sameName = (a, b) => a === b || nameScore(a, b) >= 0.7 || ((containsToken(a, b) || containsToken(b, a)) && /\d/.test(a.length < b.length ? a : b));
+    let done = 0, dup = 0, outOfScope = 0, noLoc = 0, detailFail = 0, enriched = 0, added = 0;
     for (const r of list) {
       if (PORTAL_DONE.test(r.stage)) {
         done++;
@@ -1185,9 +1263,14 @@ export async function fetchGuPortals(existing, prevProjects) {
         outOfScope++;
         continue;
       }
+      const gu = A.guOf ? A.guOf(r) : A.gu;
       const kc = kindClass(kind);
       const n = portalNameKey(r.name);
-      const same = exRows.find((x) => n.length >= 2 && !digitsConflict(n, x.n) && (x.n === n || nameScore(n, x.n) >= 0.7) && (kc === x.kc || kc === "any" || x.kc === "any"));
+      if (r.jibun != null && !/(동|리|가|읍|면)\s*(산\s*)?\d/.test(r.jibun)) {
+        noLoc++; // 대표지번이 비었거나 이름만 적힌 행(남양주 덕소2·덕소3)은 지도에 놓을 수 없다
+        continue;
+      }
+      const same = exRowsOf(gu).find((x) => n.length >= 2 && !digitsConflict(n, x.n) && sameName(n, x.n) && (kc === x.kc || kc === "any" || x.kc === "any"));
       if (same) {
         dup++;
         // 같은 사업장이 원자료에 이미 있으면 포털의 더 새로운 추진 일자를 최근 동향으로 보강한다(경기 시트가 뒤처지는 경우)
@@ -1215,10 +1298,11 @@ export async function fetchGuPortals(existing, prevProjects) {
         d = cache.details[r.id];
       }
       const b = A.build(r, d, kind);
-      out.push({ no: portalNo(`${A.id}|${r.id}`, used), sido: A.sido, gu: A.gu, guCode: A.sido === "서울" ? GU_CODE[A.gu] : sggCodeOf(SIDO_FULL[A.sido], A.gu), source: PORTAL_SOURCE, cafe: null, map: null, ...b });
+      out.push({ no: portalNo(`${A.id}|${r.id}`, used), sido: A.sido, gu, guCode: A.sido === "서울" ? GU_CODE[gu] : sggCodeOf(SIDO_FULL[A.sido], gu), source: PORTAL_SOURCE, cafe: null, map: null, ...b });
       added++;
     }
-    console.log(`  목록 ${list.length}건 → 끝난 기록 ${done}·범위 밖(청년·임대주택 등) ${outOfScope}·원자료와 같은 이름 ${dup}(동향 보강 ${enriched}) 제외 → 후보 ${added}건${detailFail ? ` (상세 실패 ${detailFail})` : ""}`);
+    console.log(`  목록 ${list.length}건 → 끝난 기록 ${done}·범위 밖(청년·임대주택 등) ${outOfScope}·위치 없음 ${noLoc}·원자료와 같은 이름 ${dup}(동향 보강 ${enriched}) 제외 → 후보 ${added}건${detailFail ? ` (상세 실패 ${detailFail})` : ""}`);
+    pool.push(...out.slice(outStart));
   }
   SOURCE_INFO.portal = newest.slice(0, 10);
   for (const p of out) console.log(`    ${p.gu} ${p.name} | ${p.jibun} | ${p.kind} · ${p.stage}${p.note ? ` | ${p.note.date} ${p.note.kw}` : ""}`);
