@@ -165,7 +165,7 @@ function linkSpecialZones(projects, zones, specials, prevZones) {
   const added = new Map();
   let n = 0;
   for (const p of projects) {
-    if (p.zoneFid || p.lat == null || p.lng == null || (p.sido ?? "서울") !== "서울") continue;
+    if (p.zoneFid || p.stale || p.lat == null || p.lng == null || (p.sido ?? "서울") !== "서울") continue;
     const kc = kindClass(p.kind);
     // 재건축·소규모재건축과 도심 도시정비형 재개발만 (주택정비형 재개발은 역세권 활성화 등 무관한 특별계획구역에 걸릴 수 있음)
     if (!(kc === "rebuild" || kc === "small" || (kc === "redev" && /도시정비형|도시환경|역세권/.test(p.kind + p.name)))) continue;
@@ -620,7 +620,10 @@ export function normName(s) {
     .toLowerCase();
 }
 
-/** a 가 b 를 포함하는가 (b 끝이 숫자면 뒤에 숫자가 이어지지 않아야 함: 장위1 ≠ 장위13) */
+/**
+ * a 가 b 를 포함하는가 (b 끝이 숫자면 뒤에 숫자가 이어지지 않아야 함: 장위1 ≠ 장위13).
+ * 숫자 뒤에 "차"가 붙으면 다른 단지다 — 신반포4차(잠원동 70, 조합설립) ≠ 신반포4지구(준공, normName 은 "신반포4") (2026-09-08)
+ */
 function containsToken(a, b) {
   if (b.length < 2 || a.length < b.length) return false;
   let i = a.indexOf(b);
@@ -629,7 +632,7 @@ function containsToken(a, b) {
     const prev = a[i - 1];
     const digitTail = /\d/.test(b[b.length - 1]);
     const digitHead = /\d/.test(b[0]);
-    if (!(digitTail && next && /\d/.test(next)) && !(digitHead && prev && /\d/.test(prev))) return true;
+    if (!(digitTail && next && /[\d차]/.test(next)) && !(digitHead && prev && /\d/.test(prev))) return true;
     i = a.indexOf(b, i + 1);
   }
   return false;
@@ -1277,11 +1280,13 @@ async function markBuiltZones(zones, projects, prevZones) {
   for (const p of projects) if (p.zoneFid) (byFid.get(p.zoneFid) ?? byFid.set(p.zoneFid, []).get(p.zoneFid)).push(p);
   const cands = zones.filter((z) => {
     const zp = z.properties;
-    if (UMBRELLA_CODE.test(zp.code)) return false;
+    if (UMBRELLA_CODE.test(zp.code) || zp.dupOf) return false;
     const linked = byFid.get(zp.fid);
     if (linked) {
+      const live = linked.filter((p) => !p.stale); // 통합 전 옛 기록은 빼고 본다
+      if (!live.length) return false; // 옛 기록만 연결된 구역은 앱에서 이미 완공
       // 연결 사업장이 모두 후기 단계면 준공됐는지 본다 (2026-09-08 확인: 행당7·이문3·방배5·도곡삼호 등 10곳이 단계만 옛 값)
-      return linked.every((p) => LATE_STAGE(p.stage)) && (zp.area ?? 0) < 300000;
+      return live.every((p) => LATE_STAGE(p.stage)) && (zp.area ?? 0) < 300000;
     }
     if (zp.src === "parcel" || zp.src === "special") return false;
     const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
@@ -1312,8 +1317,8 @@ async function markBuiltZones(zones, projects, prevZones) {
       kept++;
     }
     // 후기 단계 사업장이 연결된 구역이 준공으로 판별되면 그 사업장도 완료로 (앱에서 단계 뒤에 "준공(건물 확인)" 을 붙여 완공으로 분류)
-    const linked = byFid.get(z.properties.fid);
-    if (linked) {
+    const linked = (byFid.get(z.properties.fid) ?? []).filter((p) => !p.stale);
+    if (linked.length) {
       const done = z.properties.built === true || (r === undefined && linked.some((p) => prevProjBuilt.has(p.no)));
       if (done) for (const p of linked) if (!p.built) { p.built = true; projDone++; }
     }
@@ -1323,7 +1328,7 @@ async function markBuiltZones(zones, projects, prevZones) {
 }
 
 async function addParcelZones(projects, zones, prevZones) {
-  const cands = projects.filter((p) => !p.zoneFid && p.lat != null && p.lng != null && PARCEL_KIND.test(p.kind) && !/소규모재개발/.test(p.kind));
+  const cands = projects.filter((p) => !p.zoneFid && !p.stale && p.lat != null && p.lng != null && PARCEL_KIND.test(p.kind) && !/소규모재개발/.test(p.kind));
   console.log(`· 정비구역 폴리곤 없는 재건축·리모델링 단지 ${cands.length}건 → 대표지번 필지 경계 (V-World 지적도)`);
   const cache = fs.existsSync(parcelCachePath) ? JSON.parse(fs.readFileSync(parcelCachePath, "utf8")) : {};
   const prevByFid = new Map((prevZones?.features ?? []).filter((f) => f.properties?.src === "parcel").map((f) => [f.properties.fid, f]));
@@ -1400,12 +1405,15 @@ async function main() {
   const extraZones = await fetchVworldZones();
   const zones = [...seoulZones, ...extraZones];
   console.log(`  구역 합계 ${zones.length}개 (서울 SHP ${seoulZones.length} + V-World ${extraZones.length})`);
+  // 같은 구역이 고시 차수별로 여러 도형으로 들어 있으면(신반포3차·경남 2017/2018 등) 최신 고시를 대표로 삼고 나머지는 dupOf 로 숨긴다
+  const dupOf = groupDuplicateZones(zones);
+  const zoneByFid = new Map(zones.map((z) => [z.properties.fid, z]));
   const byId = new Map();
   for (const z of zones) {
     if (!byId.has(z.properties.id)) byId.set(z.properties.id, []);
     byId.get(z.properties.id).push(z);
   }
-  const zoneNorm = zones.map((z) => ({ z, n: normName(z.properties.name), c: centerOf(z.properties.bbox) }));
+  const zoneNorm = zones.filter((z) => !z.properties.dupOf).map((z) => ({ z, n: normName(z.properties.name), c: centerOf(z.properties.bbox) }));
 
   // 출처별 수집 — 실패(해외 IP 차단·타임아웃 등)하거나 0건이면 이전 projects.json 의 그 시도 사업장을 그대로 유지
   const prevProjects = readJson(path.join(OUT, "projects.json")) ?? [];
@@ -1496,7 +1504,7 @@ async function main() {
       const pt = [loc.lng, loc.lat];
       const hits = zones.filter((z) => {
         const zp = z.properties;
-        if ((zp.sido ?? "서울") !== (p.sido ?? "서울")) return false;
+        if ((zp.sido ?? "서울") !== (p.sido ?? "서울") || zp.dupOf) return false;
         const b = zp.bbox;
         if (!(pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && pointInGeom(pt, z.geometry))) return false;
         if (!compatible(p.kind, zp.code)) return false;
@@ -1570,10 +1578,24 @@ async function main() {
   }
   fs.writeFileSync(geoCachePath, JSON.stringify(geoCache));
 
+  /* ---- 숨긴 중복 도형에 연결된 사업장은 대표 도형으로 (정보몽땅 지도 코드가 옛 고시의 관리코드인 경우 등) ---- */
+  let remapped = 0;
+  for (const p of projects) {
+    if (!p.zoneFid || !dupOf.has(p.zoneFid)) continue;
+    const rep = zoneByFid.get(dupOf.get(p.zoneFid));
+    p.zoneFid = rep.properties.fid;
+    p.zoneId = rep.properties.id;
+    remapped++;
+  }
+  if (remapped) console.log(`  중복 도형에 연결된 사업장 ${remapped}건을 대표 도형으로 이동`);
+  /* ---- 통합 전 옛 기록(정보몽땅에 남은 것) 표시 → 앱은 완공으로 ---- */
+  markStaleRecords(projects, dupOf);
+
   /* ---- 정비구역이 없는 사업장: 지구단위계획 특별계획구역 경계 (압구정 3~5구역 등) ---- */
   linkSpecialZones(projects, zones, await buildSpecialZones(), prevZones);
   /* ---- 사업장 미연결 구역: 신축 건물로 완공 판별 ---- */
   await markBuiltZones(zones, projects, prevZones);
+  markStaleRecords(projects, dupOf); // 후속 기록이 건물 자료로 완료 처리된 경우까지
   /* ---- 정비구역 폴리곤이 없는 재건축 단지는 대표지번 필지 경계로 ---- */
   await addParcelZones(projects, zones, prevZones);
   fs.writeFileSync(path.join(OUT, "zones.geojson"), JSON.stringify({ type: "FeatureCollection", features: zones }));
@@ -1769,6 +1791,131 @@ function compatible(kind, code) {
 function digitsConflict(a, b) {
   const da = (a.match(/\d+/g) ?? []).join(","), db = (b.match(/\d+/g) ?? []).join(",");
   return !!da && !!db && da !== db;
+}
+
+/* ------------------------------------------------------------------ */
+/*  고시 차수별 중복 도형 묶기 (2026-09-08 반포경남 조사)                                              */
+/*  의제처리구역 SHP 에는 같은 구역이 최초 고시·변경 고시마다 별도 도형으로 들어 있다(신반포3차·경남 2017/2018,        */
+/*  북아현3 은 같은 날 고시 도형 8개 …). 표본점 IoU ≥ 0.7(또는 정규화 이름이 같고 ≥ 0.3)이면 한 그룹으로 보고 최신 고시  */
+/*  도형을 대표로, 나머지는 dupOf=대표 fid 로 표시한다. 앱은 대표만 그리고 연결 사업장도 대표로 옮긴다(main).          */
+/*  촉진지구·존치 같은 울타리 도형은 촉진구역과 겹치므로 제외. 실측(2026-09-08): 112그룹 136개 숨김, 이름 다른 그룹 42.   */
+/* ------------------------------------------------------------------ */
+function bboxOverlapRatio(a, b) {
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+  const h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  if (w <= 0 || h <= 0) return 0;
+  const ar = (r) => (r[2] - r[0]) * (r[3] - r[1]);
+  return (w * h) / Math.min(ar(a), ar(b));
+}
+/** 두 도형의 합집합 bbox 에 N×N 표본점을 놓고 포함 여부로 IoU 근사 (라이브러리 없이) */
+function sampledIoU(a, b, N = 40) {
+  const ab = a.properties.bbox, bb = b.properties.bbox;
+  const x0 = Math.min(ab[0], bb[0]), y0 = Math.min(ab[1], bb[1]), x1 = Math.max(ab[2], bb[2]), y1 = Math.max(ab[3], bb[3]);
+  let ia = 0, ib = 0, both = 0;
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const pt = [x0 + ((i + 0.5) / N) * (x1 - x0), y0 + ((j + 0.5) / N) * (y1 - y0)];
+      const A = pointInGeom(pt, a.geometry), B = pointInGeom(pt, b.geometry);
+      if (A) ia++;
+      if (B) ib++;
+      if (A && B) both++;
+    }
+  }
+  return both / (ia + ib - both || 1);
+}
+function groupDuplicateZones(zones) {
+  const Z = zones.filter((z) => z.properties.src === "seoul" && !UMBRELLA_CODE.test(z.properties.code));
+  const parent = new Map(Z.map((z) => [z.properties.fid, z.properties.fid]));
+  const find = (x) => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)));
+      x = parent.get(x);
+    }
+    return x;
+  };
+  for (let i = 0; i < Z.length; i++) {
+    for (let j = i + 1; j < Z.length; j++) {
+      const a = Z[i], b = Z[j];
+      if (bboxOverlapRatio(a.properties.bbox, b.properties.bbox) < 0.3) continue;
+      const v = sampledIoU(a, b);
+      const na = normName(a.properties.name), nb = normName(b.properties.name);
+      if (v >= 0.7 || (na.length >= 3 && na === nb && v >= 0.3)) parent.set(find(a.properties.fid), find(b.properties.fid));
+    }
+  }
+  const groups = new Map();
+  for (const z of Z) {
+    const r = find(z.properties.fid);
+    (groups.get(r) ?? groups.set(r, []).get(r)).push(z);
+  }
+  const dupOf = new Map();
+  const ntfcDay = (n) => +((n ?? "").match(/NTC(\d{8})/)?.[1] ?? 0);
+  let groupsN = 0, renamed = 0;
+  for (const grp of groups.values()) {
+    if (grp.length < 2) continue;
+    groupsN++;
+    grp.sort((a, b) => ntfcDay(b.properties.ntfc) - ntfcDay(a.properties.ntfc) || b.properties.area - a.properties.area || a.properties.fid.localeCompare(b.properties.fid));
+    const rep = grp[0];
+    // 대표 이름이 "정비구역"·"4구역" 같은 일반명이면 그룹에서 가장 구체적인 이름을 쓴다 (목1 재건축, 세운4구역, 잠실미성크로바)
+    if (normName(rep.properties.name).length < 2) {
+      const best = [...grp].sort((a, b) => normName(b.properties.name).length - normName(a.properties.name).length)[0];
+      if (normName(best.properties.name).length >= 2) {
+        rep.properties.name = best.properties.name;
+        renamed++;
+      }
+    }
+    rep.properties.dups = grp.slice(1).map((z) => z.properties.ntfc || "");
+    for (const z of grp.slice(1)) {
+      z.properties.dupOf = rep.properties.fid;
+      dupOf.set(z.properties.fid, rep.properties.fid);
+    }
+  }
+  console.log(`· 고시 차수별 중복 도형 ${groupsN}그룹 → ${dupOf.size}개 숨김(dupOf), 대표 이름 보정 ${renamed}`);
+  return dupOf;
+}
+
+/* ------------------------------------------------------------------ */
+/*  통합 전 옛 기록 판별 (2026-09-08 반포경남 조사)                                                    */
+/*  정보몽땅에는 통합 재건축 전의 단지별 옛 기록("반포경남아파트 주택재건축", 추진위원회승인)이 지워지지 않고 남아 실제   */
+/*  사업("신반포3차,경남", 조합해산)과 따로 있다. 같은 구역 그룹 또는 500 m 안에 완료 기록이 있고 이름이 서로 포함되면      */
+/*  (신반포3차,경남 ⊃ 경남) 초기 단계의 옛 기록을 stale=후속 기록 no 로 표시 → 앱은 완공으로 다루고 패널에 안내한다.        */
+/*  주의: 신반포4차(조합설립) ↔ 신반포4지구(준공)처럼 숫자만 같은 별개 단지는 잡히면 안 되므로 차·단지·지구는 이름에 남겨    */
+/*  비교하고, 법정동 이름(염창동 우성1·2차 ↔ 웅지·오성·"염창")은 공통 토큰으로 인정하지 않는다. 실측(2026-09-08): 서울 1건. */
+/* ------------------------------------------------------------------ */
+const EARLY_STAGE = (s) => !/사업시행|사업계획승인|심의|관리처분|착공|철거|분양|이주|준공|이전고시|해산|청산|입주/.test(s ?? "");
+const DONE_STAGE = (s) => /준공|이전고시|해산|청산|입주/.test(s ?? "");
+const LIGHT_STRIP =
+  /주택재건축정비사업조합설립추진위원회|조합설립추진위원회|조합설립추진위|정비사업조합|정비사업|재건축사업|재개발사업|주택재건축|주택재개발|재정비촉진구역|촉진구역|도시환경정비|도시정비형|주택정비형|공공재개발|공공재건축|재건축|재개발|추진위원회|정비구역|정비계획|정비예정구역|예정구역|조합|아파트|사업|일대|일원|번지|주택|제(?=\d)/g;
+const circled = (s) => (s ?? "").replace(/[①-⑳]/g, (c) => String(CIRCLED.indexOf(c) + 1));
+const lightName = (s) => circled(s).replace(LIGHT_STRIP, "").replace(/[\s·ㆍ,\-_.~'’"“”()\[\]]/g, "").toLowerCase();
+const nameParts = (s) => circled(s).split(/[,·ㆍ/&+()\[\]]|\s및\s|\s와\s|\s과\s/).map(lightName).filter((t) => t.length >= 2 && /[가-힣]/.test(t));
+const dongRootOf = (jibun) => (jibun ?? "").match(/^(\S+?)(동|가|읍|면|리)(\s|$)/)?.[1] ?? "";
+function staleNameRelation(p, q) {
+  const fp = lightName(p.name), fq = lightName(q.name);
+  if (fp.length < 2 || fq.length < 2 || digitsConflict(fp, fq)) return false;
+  if (fp === fq || containsToken(fq, fp) || containsToken(fp, fq)) return true;
+  const dongs = [p.jibun, q.jibun].map(dongRootOf).filter(Boolean);
+  const isDong = (t) => dongs.some((d) => t.includes(d) || d.includes(t));
+  return nameParts(q.name).some((t) => !isDong(t) && (t === fp || containsToken(fp, t))) || nameParts(p.name).some((t) => !isDong(t) && (t === fq || containsToken(fq, t)));
+}
+function markStaleRecords(projects, dupOf) {
+  const groupKey = (fid) => dupOf.get(fid) ?? fid;
+  const done = projects.filter((p) => p.source === "정보몽땅" && (DONE_STAGE(p.stage) || p.built));
+  let n = 0;
+  for (const p of projects) {
+    if (p.stale || p.source !== "정보몽땅" || p.built || !EARLY_STAGE(p.stage) || kindClass(p.kind) === "none") continue;
+    for (const q of done) {
+      if (q === p || kindClass(q.kind) !== kindClass(p.kind)) continue;
+      const sameGroup = p.zoneFid && q.zoneFid && groupKey(p.zoneFid) === groupKey(q.zoneFid);
+      if (!sameGroup && !(p.lat != null && q.lat != null && distKm(p, q) <= 0.5)) continue;
+      if (!staleNameRelation(p, q)) continue;
+      p.stale = q.no;
+      n++;
+      console.log(`  옛 기록: ${p.name} [${p.stage}] → ${q.name} [${q.stage}]`);
+      break;
+    }
+  }
+  if (n) console.log(`· 통합 전 옛 기록 ${n}건 표시(stale)`);
+  return n;
 }
 
 function pickBest(cands, pn, loc) {

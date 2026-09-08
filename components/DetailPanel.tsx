@@ -10,6 +10,8 @@ type Props = {
   sel: Selection;
   zone: ZoneFeature | null;
   project: Project | null;
+  /** project 가 통합 전 옛 기록(stale)일 때 같은 현장의 현재(완료) 기록 */
+  successor?: Project | null;
   zoneProjects: Project[];
   onClose: () => void;
   onSelectProject: (no: number) => void;
@@ -29,7 +31,7 @@ type NtfcState = { key: string; data: NtfcDetail | null; error: string };
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export default function DetailPanel({ sel, zone, project, zoneProjects, onClose, onSelectProject, onSelectZone, onFocus }: Props) {
+export default function DetailPanel({ sel, zone, project, successor, zoneProjects, onClose, onSelectProject, onSelectZone, onFocus }: Props) {
   const [gosi, setGosi] = useState<GosiState>({ key: "", items: [], errors: [] });
   const [sum, setSum] = useState<SumState>({ key: "", data: null, error: "" });
   const [ntfc, setNtfc] = useState<NtfcState>({ key: "", data: null, error: "" });
@@ -185,6 +187,22 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
               )}
             </p>
           )}
+          {project?.stale && (
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
+              통합 전 옛 기록입니다. 이 현장은{" "}
+              {successor ? (
+                <>
+                  <button onClick={() => onSelectProject(successor.no)} className="font-semibold underline hover:text-brand">
+                    {successor.name}
+                  </button>
+                  ({successor.stage})
+                </>
+              ) : (
+                "다른 기록"
+              )}
+              으로 사업이 끝났는데 정보몽땅에 이 기록이 갱신되지 않고 남아 있어 완공으로 분류했습니다.
+            </p>
+          )}
         </div>
         <button onClick={onFocus} className="btn !px-2" title="지도에서 보기" aria-label="지도에서 보기">
           ◎
@@ -290,6 +308,12 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
             <Row k="면적" v={fmtArea(zp.area)} />
             <Row k="결정고시" v={ntfcDate(zp.ntfc) ? `${ntfcDate(zp.ntfc)} (${zp.ntfc})` : zp.ntfc || "-"} />
             <Row k="관리코드" v={zp.id} mono />
+            {zp.dups?.length ? (
+              <p className="mt-1 text-[11px] text-gray-400">
+                서울시 구역 자료에 같은 경계의 도형이 고시 차수별로 {zp.dups.length + 1}개 있어 최신 고시 도형만 표시합니다. 이전 고시:{" "}
+                {zp.dups.map((n) => ntfcDate(n) || "일자 미상").join(", ")}
+              </p>
+            ) : null}
             {zp.src === "vworld" && (
               <p className="mt-1 text-[11px] text-gray-400">V-World 지구단위계획구역(UPIS) 레이어에서 정비구역 이름으로 찾은 경계입니다. 정비구역 지정 시 함께 결정된 지구단위계획구역 경계라 정비구역과 다를 수 있습니다.</p>
             )}

@@ -27,6 +27,10 @@ export type ZoneProps = {
   built?: boolean;
   /** 판별에 쓴 신축 고층 건물 동수 */
   builtN?: number;
+  /** 같은 구역의 고시 차수별 중복 도형이면 최신 고시 도형(대표)의 fid — 앱은 대표만 그린다 */
+  dupOf?: string;
+  /** 대표 도형일 때, 숨긴 이전 차수 도형들의 고시번호 코드 */
+  dups?: string[];
 };
 
 export type Sido = "서울" | "경기" | "인천";
@@ -53,6 +57,8 @@ export type Project = {
   complexes?: { q: string; core: string }[];
   /** 자료의 단계는 후기(관리처분~분양)인데 구역 안 신축 고층 건물로 준공이 확인된 사업장 — 앱은 단계 뒤에 "준공(건물 확인)" 을 붙여 완공으로 다룬다 */
   built?: boolean;
+  /** 통합 재건축 등으로 다른 기록에 흡수된 뒤 정보몽땅에 갱신되지 않고 남은 옛 기록 — 값은 같은 현장의 완료 기록 no. 앱은 완공으로 다룬다 */
+  stale?: number;
   /** 원문 위치 표기 (경기·인천 자료의 '위치' 열) */
   loc?: string;
   /** 구역 면적 ㎡ (경기·인천 자료) */

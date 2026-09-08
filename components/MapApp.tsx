@@ -101,20 +101,39 @@ export default function MapApp() {
     let alive = true;
     (async () => {
       try {
-        const [z, p, m] = await Promise.all([
+        const [z0, p, m] = await Promise.all([
           fetch("/data/zones.geojson").then((r) => r.json() as Promise<ZoneCollection>),
           fetch("/data/projects.json").then((r) => r.json() as Promise<Project[]>),
           fetch("/data/meta.json").then((r) => r.json() as Promise<DataMeta>).catch(() => null),
         ]);
         if (!alive) return;
+        // 같은 구역의 고시 차수별 중복 도형(dupOf)은 최신 대표만 그린다. 숨긴 도형을 가리키는 공유 링크는 대표로 돌린다
+        const dupRedirect = new Map<string, string>();
+        const z: ZoneCollection = {
+          ...z0,
+          features: z0.features.filter((f) => {
+            if (!f.properties.dupOf) return true;
+            dupRedirect.set(f.properties.fid, f.properties.dupOf);
+            return false;
+          }),
+        };
         setZones(z);
-        // 건물 자료로 준공이 확인된 사업장은 단계 뒤에 표시를 붙여 완공(완료)으로 분류 (자료 원문 단계는 그대로 두고 표시만)
-        setProjects(p.map((x) => (x.built && !/준공|청산|해산|이전고시|입주/.test(x.stage ?? "") ? { ...x, stage: `${x.stage || "단계 미기재"} · 준공(건물 확인)` } : x)));
+        // 건물 자료로 준공이 확인된 사업장, 통합 뒤 정보몽땅에 남은 옛 기록은 단계 뒤에 표시를 붙여 완공(완료)으로 분류 (자료 원문 단계는 그대로 두고 표시만)
+        const DONE = /준공|청산|해산|이전고시|입주/;
+        setProjects(
+          p.map((x) => {
+            if (DONE.test(x.stage ?? "")) return x;
+            if (x.built) return { ...x, stage: `${x.stage || "단계 미기재"} · 준공(건물 확인)` };
+            if (x.stale) return { ...x, stage: `${x.stage || "단계 미기재"} · 옛 기록(통합 후 해산)` };
+            return x;
+          }),
+        );
         setMeta(m);
         // 공유 링크 (?p=사업장 / ?z=구역) 복원
         const sp = new URLSearchParams(window.location.search);
         const pno = Number(sp.get("p"));
-        const zf = sp.get("z");
+        const zf0 = sp.get("z");
+        const zf = zf0 ? (dupRedirect.get(zf0) ?? zf0) : null;
         const pr = pno ? p.find((x) => x.no === pno) : undefined;
         if (pr) {
           setSel({ type: "project", no: pr.no });
@@ -248,7 +267,8 @@ export default function MapApp() {
       const fp = f.properties;
       const linked = projectsByZoneFid.get(fp.fid) ?? [];
       const shown = linked.filter((p) => filteredNoSet.has(p.no));
-      const pick = shown[0] ?? linked[0];
+      // 통합 전 옛 기록(stale)보다 현재 기록을 앞세운다
+      const pick = shown.find((p) => !p.stale) ?? shown[0] ?? linked.find((p) => !p.stale) ?? linked[0];
       const y = zoneYear(fp.ntfc);
       if (pick) {
         sub.set(fp.fid, `${kindShort(pick.kind)} · ${pick.stage || "단계 미기재"}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
@@ -682,6 +702,7 @@ export default function MapApp() {
             sel={sel}
             zone={selZone}
             project={selProject}
+            successor={selProject?.stale ? (projectByNo.get(selProject.stale) ?? null) : null}
             zoneProjects={zoneProjects}
             onClose={() => setSel(null)}
             onSelectProject={(no) => selectProject(no, true)}
