@@ -2,7 +2,7 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
 import type { Project, Selection, ZoneCollection, ZoneFeature } from "@/lib/types";
-import { CATEGORY_COLOR, STAGE_COLOR, stageGroup, zoneCategory } from "@/lib/zones";
+import { CATEGORY_COLOR, STAGE_COLOR, correctionOf, rawStage, stageGroup, stageLabel, zoneCategory } from "@/lib/zones";
 
 export type BaseKey = "vBase" | "vSat" | "osm";
 export type Focus = { key: number; bounds?: [number, number, number, number]; center?: [number, number]; zoom?: number };
@@ -75,6 +75,14 @@ function applyFocus(map: L.Map, focus: Focus, panelOpen: boolean, animate: boole
     const offY = (padTL[1] - padBR[1]) / 2;
     map.setView(map.unproject(target.add([-offX, -offY]), z), z, { animate });
   }
+}
+
+/** 경계 자료가 없고 위치도 대략인 사업장: 모아타운 대상지(대표지번 한 점)·법정동 중심(준공 후 지번 합병) — 점선 테두리로 구분 */
+const isApprox = (pr: Project) => pr.source === "모아타운" || pr.locSrc === "emd";
+function markerStyle(pr: Project): L.CircleMarkerOptions {
+  const color = STAGE_COLOR[stageGroup(pr.stage)];
+  if (isApprox(pr)) return { radius: 6, color, weight: 1.5, dashArray: "2 2", fillColor: color, fillOpacity: 0.55 };
+  return { radius: 6, color: "#fff", weight: 1.5, dashArray: undefined, fillColor: color, fillOpacity: 0.95 };
 }
 
 function zoneStyle(f: ZoneFeature, dim: boolean): L.PathOptions {
@@ -322,13 +330,17 @@ export default function MapView(p: Props) {
     const linked = L.layerGroup();
     for (const pr of p.projects) {
       if (pr.lat == null || pr.lng == null) continue;
-      const color = STAGE_COLOR[stageGroup(pr.stage)];
-      const m = L.circleMarker([pr.lat, pr.lng], { radius: 6, color: "#fff", weight: 1.5, fillColor: color, fillOpacity: 0.95 });
+      const m = L.circleMarker([pr.lat, pr.lng], markerStyle(pr));
       m.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
         cb.current.onSelectProject(pr.no);
       });
-      m.bindTooltip(`${pr.name}<br><span style="font-weight:400;color:#666">${pr.stage || "단계 미기재"}</span>`, {
+      const c = correctionOf(pr);
+      const stageLine = c ? `${stageLabel(pr)} <span style="color:#999">(원자료 ${rawStage(pr.stage) || "미기재"})</span>` : stageLabel(pr);
+      const approxLine = isApprox(pr)
+        ? `<br><span style="font-weight:400;color:#999">${pr.source === "모아타운" ? "모아타운 대상지 — 경계 자료 없음, 대표지번 점만 표시" : "대략 위치(법정동 중심)"}${pr.zoneFid ? "" : " · 옆 구역 경계와 별개 사업"}</span>`
+        : "";
+      m.bindTooltip(`${pr.name}<br><span style="font-weight:400;color:#666">${stageLine}</span>${approxLine}`, {
         direction: "top",
         offset: [0, -6],
         className: "rm-tip",
@@ -360,7 +372,7 @@ export default function MapView(p: Props) {
     if (prevNo != null) {
       const m = markerByNo.current.get(prevNo);
       const pr = p.projects.find((x) => x.no === prevNo);
-      if (m && pr) m.setStyle({ radius: 6, weight: 1.5, color: "#fff", fillColor: STAGE_COLOR[stageGroup(pr.stage)] });
+      if (m && pr) m.setStyle(markerStyle(pr));
     }
     highlighted.current = {};
     if (p.selectedZoneFid) {

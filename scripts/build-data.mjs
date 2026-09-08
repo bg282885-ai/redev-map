@@ -15,8 +15,8 @@ import AdmZip from "adm-zip";
 import mapshaper from "mapshaper";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const RAW = path.join(ROOT, "data", "raw");
-const OUT = path.join(ROOT, "public", "data");
+export const RAW = path.join(ROOT, "data", "raw");
+export const OUT = path.join(ROOT, "public", "data");
 fs.mkdirSync(RAW, { recursive: true });
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -28,7 +28,7 @@ const VWORLD_DOMAIN = process.env.VWORLD_DOMAIN ?? "localhost";
 const UA = "Mozilla/5.0 (compatible; HaenglimRedevMap/1.0)";
 
 /** 서울 자치구 코드 (정보몽땅 signguCode = 법정동 시군구코드 5자리) */
-const GU = {
+export const GU = {
   11110: "종로구", 11140: "중구", 11170: "용산구", 11200: "성동구", 11215: "광진구",
   11230: "동대문구", 11260: "중랑구", 11290: "성북구", 11305: "강북구", 11320: "도봉구",
   11350: "노원구", 11380: "은평구", 11410: "서대문구", 11440: "마포구", 11470: "양천구",
@@ -307,7 +307,7 @@ async function fetchCleanupBoard() {
 }
 
 /** 사업장의 최근 동향: 서울은 게시판에서 구역명이 들어간 최신 글, 경기는 추진현황의 최신 인가 일자 */
-function noteFor(p, board) {
+export function noteFor(p, board) {
   if (p.sido === "경기") {
     let best = null;
     for (const [k, v] of p.extra ?? []) {
@@ -403,13 +403,13 @@ async function fetchCleanupList() {
 /*  3. 지오코딩 (V-World getcoord, 지번)                                   */
 /* ------------------------------------------------------------------ */
 const geoCachePath = path.join(RAW, "geocode.json");
-const geoCache = fs.existsSync(geoCachePath) ? JSON.parse(fs.readFileSync(geoCachePath, "utf8")) : {};
+export const geoCache = fs.existsSync(geoCachePath) ? JSON.parse(fs.readFileSync(geoCachePath, "utf8")) : {};
 // V-World 는 해외 IP(GitHub Actions 러너 등)에 HTML 차단 페이지를 돌려준다. 연속 실패하면 차단으로 보고
 // 남은 지오코딩을 건너뛴다(주소당 15초씩 재시도하면 수천 건에 몇 시간이 걸림). 좌표는 캐시·이전 자료로 유지
 let vworldFails = 0;
 let vworldDown = false;
 
-async function geocode(address, type = "PARCEL") {
+export async function geocode(address, type = "PARCEL") {
   const ck = type === "ROAD" ? `ROAD:${address}` : address;
   if (ck in geoCache) return geoCache[ck];
   if (!VWORLD_KEY || vworldDown) return null;
@@ -553,7 +553,7 @@ async function searchDistrict(fullDong) {
 }
 
 /** 지오코딩 후보 주소("경기도 광명시 철산3동 233", "… 철산동 233")에서 법정동 경로 목록("경기도 광명시 철산3동", "… 철산동")을 만든다 */
-function dongsOf(cands) {
+export function dongsOf(cands) {
   const out = [];
   for (const c of cands) {
     if (c.type !== "PARCEL") continue;
@@ -568,7 +568,7 @@ function dongsOf(cands) {
  * "영통 2구역(매탄주공 4,5단지)"→괄호 안 단지명 우선. 단지·아파트·주공 등 건물 이름으로 볼 수 있는 것만 만든다
  * (구역명("중1", "덕천")으로 검색하면 엉뚱한 곳이 잡히므로 제외).
  */
-function placeQueries(gu, name) {
+export function placeQueries(gu, name) {
   const out = [];
   const inner = [...(name ?? "").matchAll(/\(([^)]+)\)/g)].map((m) => m[1]);
   const outer = (name ?? "").replace(/\(.*?\)/g, " ").replace(/\s+/g, " ").trim();
@@ -591,7 +591,7 @@ function placeQueries(gu, name) {
 }
 
 /** "개포동 138", "신길동 1583-1", "OO동 산 12-3" → 지오코딩 후보 주소들 (정확→느슨) */
-function addressCandidates(gu, jibun) {
+export function addressCandidates(gu, jibun) {
   const j = (jibun ?? "").replace(/\s+/g, " ").trim();
   const m = j.match(/^(\S+?(?:동|가|읍|면|리))\s*(산)?\s*(\d+)(?:-(\d+))?/);
   if (!m) return [];
@@ -624,7 +624,7 @@ export function normName(s) {
  * a 가 b 를 포함하는가 (b 끝이 숫자면 뒤에 숫자가 이어지지 않아야 함: 장위1 ≠ 장위13).
  * 숫자 뒤에 "차"가 붙으면 다른 단지다 — 신반포4차(잠원동 70, 조합설립) ≠ 신반포4지구(준공, normName 은 "신반포4") (2026-09-08)
  */
-function containsToken(a, b) {
+export function containsToken(a, b) {
   if (b.length < 2 || a.length < b.length) return false;
   let i = a.indexOf(b);
   while (i >= 0) {
@@ -638,7 +638,7 @@ function containsToken(a, b) {
   return false;
 }
 
-function nameScore(a, b) {
+export function nameScore(a, b) {
   if (!a || !b) return 0;
   if (a === b) return 1;
   // 둘 다 숫자가 있으면 숫자열이 같아야 한다 — "압구정특별계획2" 와 "압구정특별계획5" 는 다른 구역 (2026-09-08 압구정 1·3·4·5구역이 2구역에 묶이던 문제)
@@ -651,7 +651,7 @@ function nameScore(a, b) {
   return k >= 3 ? (k / Math.max(a.length, b.length)) * 0.6 : 0;
 }
 
-function bbox(g) {
+export function bbox(g) {
   let minX = 180, minY = 90, maxX = -180, maxY = -90;
   const walk = (c) => {
     if (typeof c[0] === "number") {
@@ -675,7 +675,7 @@ function pointInRing(pt, ring) {
   }
   return inside;
 }
-function pointInGeom(pt, g) {
+export function pointInGeom(pt, g) {
   const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
   for (const poly of polys) {
     if (!pointInRing(pt, poly[0])) continue;
@@ -686,12 +686,12 @@ function pointInGeom(pt, g) {
   return false;
 }
 
-function distKm(a, b) {
+export function distKm(a, b) {
   const dx = (a.lng - b.lng) * 88.8, dy = (a.lat - b.lat) * 111;
   return Math.hypot(dx, dy);
 }
 /** 점에서 폴리곤 경계(바깥 고리)까지 가장 짧은 거리(m) — 위도 보정 평면 근사 */
-function distToGeomM(pt, g) {
+export function distToGeomM(pt, g) {
   const rings = g.type === "Polygon" ? [g.coordinates[0]] : g.coordinates.map((p) => p[0]);
   const X = (c) => c[0] * 88800, Y = (c) => c[1] * 111000;
   const px = X(pt), py = Y(pt);
@@ -711,7 +711,7 @@ function distToGeomM(pt, g) {
 /* ------------------------------------------------------------------ */
 /*  경기·인천 — 사업장 목록(공공데이터포털 CSV) + V-World 지구단위계획 레이어 폴리곤 */
 /* ------------------------------------------------------------------ */
-const SIDO_FULL = { 서울: "서울특별시", 경기: "경기도", 인천: "인천광역시" };
+export const SIDO_FULL = { 서울: "서울특별시", 경기: "경기도", 인천: "인천광역시" };
 
 /** 법정동 사전(시군구 단위) → 이름으로 5자리 코드 찾기 */
 let SGG = null;
@@ -810,7 +810,7 @@ function col(header, ...keys) {
 }
 
 /** 2026-07 행정구역 개편으로 이름이 바뀐 시군구 — 지오코더는 새 이름만 안다 */
-const SGG_RENAMED = { 인천광역시: { 중구: ["제물포구", "영종구"], 동구: ["제물포구"], 서구: ["서해구", "검단구"], 남구: ["미추홀구"] } };
+export const SGG_RENAMED = { 인천광역시: { 중구: ["제물포구", "영종구"], 동구: ["제물포구"], 서구: ["서해구", "검단구"], 남구: ["미추홀구"] } };
 
 /** 법정동 사전에서 "경기도 고양시 ? 성사동" 처럼 구가 빠진 주소의 정식 경로(시군구 포함)를 찾는다 */
 let EMD_ALL = null;
@@ -828,7 +828,7 @@ function emdFullPath(sidoFull, sgg, dong) {
  * 자유 형식 위치("경동 40번지 및 율목동 10번지 일원", "경기도 고양시 탄현동 28번지 일원", "제물량로 341 일원")
  * → 지오코딩 후보 [{address, type}] (정식 법정동 경로 → 새 시군구 이름 → 옛 이름 순)
  */
-function locCandidates(sidoFull, sgg, loc) {
+export function locCandidates(sidoFull, sgg, loc) {
   const raw = (loc ?? "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
   if (!raw || /^nan$/i.test(raw)) return [];
   const s = raw.replace(/^(서울특별시|경기도|인천광역시)\s+/, "").replace(/^\s*\S+(시|구|군)\s+/, "").replace(/^\s*\S+구\s+/, "");
@@ -1170,13 +1170,13 @@ async function fetchVworldZones() {
  * (2026-09-08 부팀장 지적). 아파트 단지는 대지 한 필지가 단지 경계와 거의 같으므로 지목 '대' 이고 면적이 충분할 때만 쓴다
  * (재개발·단독주택 재건축의 대표지번은 500~2,000㎡ 짜리 한 필지라 제외). 재개발 구역은 필지 여러 개라 이 방법이 맞지 않는다.
  */
-const PARCEL_KIND = /재건축|리모델링/;
-const PARCEL_MIN_AREA = (kind) => (/소규모/.test(kind) ? 1500 : 3000);
-const parcelCachePath = path.join(RAW, "parcels.json");
+export const PARCEL_KIND = /재건축|리모델링/;
+export const PARCEL_MIN_AREA = (kind) => (/소규모/.test(kind) ? 1500 : 3000);
+export const parcelCachePath = path.join(RAW, "parcels.json");
 let parcelDown = false;
 
 /** 위경도 폴리곤 면적(㎡) — 위도 보정한 평면 근사 (수도권 범위에서 0.1% 이내) */
-function areaM2(g) {
+export function areaM2(g) {
   const rings = g.type === "Polygon" ? [g.coordinates[0]] : g.coordinates.map((p) => p[0]);
   let A = 0;
   for (const r of rings) {
@@ -1234,17 +1234,17 @@ async function fetchParcel(p, cache) {
  * "구역 안에 승인일 없는 10층 이상 건물" 또는 "지정 이후 승인된 10층 이상 건물" 이 3동 이상(작은 구역은 1동)이면 준공으로 본다.
  * 2026-09-08 확인: 아현1-3·아현2·아현4·흑석3(준공) 6~21동, 한남3(진행) 0동. 촉진지구·도시개발구역 울타리는 제외.
  */
-const builtCachePath = path.join(RAW, "built.json");
+export const builtCachePath = path.join(RAW, "built.json");
 let builtDown = false;
 
-function centroidOf(g) {
+export function centroidOf(g) {
   const r = g.type === "Polygon" ? g.coordinates[0] : g.coordinates[0][0];
   let x = 0, y = 0;
   for (const c of r) { x += c[0]; y += c[1]; }
   return [x / r.length, y / r.length];
 }
 
-async function fetchBuiltSignal(z, cache) {
+export async function fetchBuiltSignal(z, cache) {
   const zp = z.properties;
   const ck = `${zp.fid}|${zp.ntfc}`;
   if (ck in cache) return cache[ck];
@@ -1290,25 +1290,35 @@ async function fetchBuiltSignal(z, cache) {
 }
 
 /** 후기 단계(관리처분·이주·철거·착공·분양)인데 아직 완료로 안 바뀐 사업장 — 준공 뒤 자료 갱신이 늦는 경우가 있다 */
-const LATE_STAGE = (s) => /관리처분|착공|철거|분양|이주/.test(s ?? "") && !/준공|청산|해산|이전고시|입주/.test(s ?? "");
+export const LATE_STAGE = (s) => /관리처분|착공|철거|분양|이주/.test(s ?? "") && !/준공|청산|해산|이전고시|입주/.test(s ?? "");
 
+/**
+ * 건물 판별(V-World 건물통합정보) 대상 구역인가. linked = 그 시점에 연결된 사업장(없으면 undefined).
+ * 주의: 필지 경계(src parcel)는 markBuiltZones 뒤에 addParcelZones 가 만들므로 실제로는 검사 대상이 되지 않는다
+ *  (옛 고층 단지의 '대장 미결합' 건물을 신축으로 오판할 위험이 있어 그대로 둔다)
+ */
+export function builtCandidacy(zp, linked) {
+  if (UMBRELLA_CODE.test(zp.code)) return { ok: false, reason: "울타리 구역(촉진지구·도시개발)" };
+  if (zp.dupOf) return { ok: false, reason: "고시 차수 중복 도형(dupOf) — 대표 도형에서 판별" };
+  if (linked) {
+    const live = linked.filter((p) => !p.stale && !p.doneBy && !p.useApr); // 통합 전 옛 기록·준공 추정·사용승인 확인 기록은 빼고 본다
+    if (!live.length) return { ok: false, reason: "연결 기록이 모두 옛 기록·준공 추정·사용승인 확인 → 앱에서 이미 완공" };
+    // 연결 사업장이 모두 후기 단계면 준공됐는지 본다 (2026-09-08 확인: 행당7·이문3·방배5·도곡삼호 등 10곳이 단계만 옛 값)
+    if (!live.every((p) => LATE_STAGE(p.stage))) return { ok: false, reason: "연결 사업장에 후기 단계(관리처분~분양) 아닌 기록 있음 (초기 단계 구역은 옛 고층 단지 오탐 100%)" };
+    if ((zp.area ?? 0) >= 300000) return { ok: false, reason: "면적 30만㎡ 이상" };
+    return { ok: true, reason: "연결 사업장 모두 후기 단계" };
+  }
+  if (zp.src === "parcel" || zp.src === "special") return { ok: false, reason: "사업장 미연결 필지·특별계획 도형" };
+  const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
+  if (y < 2010) return { ok: false, reason: `고시 ${y || "미상"} — 2010년 이전은 앱에서 이미 '과거 구역'` };
+  return { ok: true, reason: "사업장 미연결 2010년 이후 구역" };
+}
+/** 신축 고층 동수(tall)로 준공 판정 — 3동 이상, 또는 1동 이상이면서 1만㎡ 미만 구역 */
+export const builtVerdict = (tall, area) => tall >= 3 || (tall >= 1 && (area ?? 0) < 10000);
 async function markBuiltZones(zones, projects, prevZones) {
   const byFid = new Map();
   for (const p of projects) if (p.zoneFid) (byFid.get(p.zoneFid) ?? byFid.set(p.zoneFid, []).get(p.zoneFid)).push(p);
-  const cands = zones.filter((z) => {
-    const zp = z.properties;
-    if (UMBRELLA_CODE.test(zp.code) || zp.dupOf) return false;
-    const linked = byFid.get(zp.fid);
-    if (linked) {
-      const live = linked.filter((p) => !p.stale && !p.doneBy && !p.useApr); // 통합 전 옛 기록·준공 추정·사용승인 확인 기록은 빼고 본다
-      if (!live.length) return false; // 그런 기록만 연결된 구역은 앱에서 이미 완공
-      // 연결 사업장이 모두 후기 단계면 준공됐는지 본다 (2026-09-08 확인: 행당7·이문3·방배5·도곡삼호 등 10곳이 단계만 옛 값)
-      return live.every((p) => LATE_STAGE(p.stage)) && (zp.area ?? 0) < 300000;
-    }
-    if (zp.src === "parcel" || zp.src === "special") return false;
-    const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
-    return y >= 2010; // 그 이전 고시는 앱에서 이미 '과거 구역'
-  });
+  const cands = zones.filter((z) => builtCandidacy(z.properties, byFid.get(z.properties.fid)).ok);
   console.log(`· 사업장 미연결 최근 구역 + 후기 단계 구역 ${cands.length}개 → 신축 건물로 완공 여부 판별 (V-World 건물통합정보)`);
   const cache = fs.existsSync(builtCachePath) ? JSON.parse(fs.readFileSync(builtCachePath, "utf8")) : {};
   const prevBuilt = new Map((prevZones?.features ?? []).filter((f) => f.properties?.built != null).map((f) => [f.properties.fid, f.properties]));
@@ -1324,7 +1334,7 @@ async function markBuiltZones(zones, projects, prevZones) {
       // 판정은 캐시된 동수로 매번 계산 (규칙을 바꿔도 캐시 재사용). 고시 연도는 최신 변경·해제 고시라 "최근 지정" 제외에 못 쓴다.
       // 검증(2026-09-08, 정보몽땅 단계가 확실한 구역): 완료 45곳 중 36곳 적중, 진행 45곳 중 오탐 1곳, 공사 중 25곳 중 3곳
       const tall = r.tall ?? 0;
-      z.properties.built = tall >= 3 || (tall >= 1 && (z.properties.area ?? 0) < 10000);
+      z.properties.built = builtVerdict(tall, z.properties.area);
       z.properties.builtN = tall;
       if (z.properties.built) built++;
     } else if (prevBuilt.has(z.properties.fid)) {
@@ -1657,6 +1667,14 @@ async function main() {
   console.log("· 결과", stat, bySido);
   console.log(`  projects.json ${(fs.statSync(path.join(OUT, "projects.json")).size / 1e3).toFixed(0)} KB`);
 
+  /* ---- 정답 목록(data/truth.json)과 비교하는 회귀 검사 — 위반이 있어도 빌드는 실패시키지 않고 출력만 ---- */
+  try {
+    const { runAudit } = await import("./audit.mjs");
+    runAudit({ projects, zones });
+  } catch (e) {
+    console.warn("  회귀 검사 실행 실패:", e.message);
+  }
+
   /** 이전 projects.json 에서 지오코딩으로 얻은 좌표를 캐시에 미리 넣어 V-World 없이도 기존 사업장 좌표가 유지되게 한다 */
   function seedGeoCacheFromPrevious() {
     const prev = readJson(path.join(OUT, "projects.json"));
@@ -1768,7 +1786,7 @@ function diffAgainstPrevious(zones, projects, prevZ) {
   return { added: added.length, byType };
 }
 
-function readJson(p) {
+export function readJson(p) {
   try {
     return JSON.parse(fs.readFileSync(p, "utf8"));
   } catch {
@@ -1784,12 +1802,12 @@ function readJson(p) {
 /*    (전농8구역이 81ha 촉진지구 전체에 묶이던 문제)                                          */
 /*  - 숫자 충돌: 이름의 숫자열이 다르면 다른 구역 (영등포1-5~1-18 이 1-12 구역에 몰리던 문제)          */
 /* ------------------------------------------------------------------ */
-const UMBRELLA_CODE = /^UQ(51|11)/; // 촉진지구·존치·도시개발
-const MANAGED_CODE = "UQ1212"; // 주거환경관리사업(관리형)
+export const UMBRELLA_CODE = /^UQ(51|11)/; // 촉진지구·존치·도시개발
+export const MANAGED_CODE = "UQ1212"; // 주거환경관리사업(관리형)
 /** 자리표시 관리코드 — 옛 구역 128개가 공유하므로 지도코드 연결에 쓰지 않는다 */
-const PLACEHOLDER_AGZ = "11000AGZ000000001811";
+export const PLACEHOLDER_AGZ = "11000AGZ000000001811";
 
-function kindClass(kind) {
+export function kindClass(kind) {
   const k = (kind ?? "").replace(/\([^)]*\)/g, "");
   if (/지역주택|리모델링|모아타운/.test(k)) return "none"; // 모아타운은 관리지역(면)이라 정비구역 폴리곤과 묶지 않는다
   if (/소규모재건축/.test(k)) return "small";
@@ -1800,7 +1818,7 @@ function kindClass(kind) {
   return "any";
 }
 /** 사업장 구분과 구역 분류코드가 어울리는가 */
-function compatible(kind, code) {
+export function compatible(kind, code) {
   const c = kindClass(kind);
   if (c === "none") return false;
   if (c === "any") return true;
@@ -1812,7 +1830,7 @@ function compatible(kind, code) {
   return true;
 }
 /** 두 이름 모두 숫자가 있는데 숫자열이 다르면 다른 구역으로 본다 */
-function digitsConflict(a, b) {
+export function digitsConflict(a, b) {
   const da = (a.match(/\d+/g) ?? []).join(","), db = (b.match(/\d+/g) ?? []).join(",");
   return !!da && !!db && da !== db;
 }
@@ -1905,15 +1923,15 @@ function groupDuplicateZones(zones) {
 /*  주의: 신반포4차(조합설립) ↔ 신반포4지구(준공)처럼 숫자만 같은 별개 단지는 잡히면 안 되므로 차·단지·지구는 이름에 남겨    */
 /*  비교하고, 법정동 이름(염창동 우성1·2차 ↔ 웅지·오성·"염창")은 공통 토큰으로 인정하지 않는다. 실측(2026-09-08): 서울 1건. */
 /* ------------------------------------------------------------------ */
-const EARLY_STAGE = (s) => !/사업시행|사업계획승인|심의|관리처분|착공|철거|분양|이주|준공|이전고시|해산|청산|입주/.test(s ?? "");
-const DONE_STAGE = (s) => /준공|이전고시|해산|청산|입주/.test(s ?? "");
+export const EARLY_STAGE = (s) => !/사업시행|사업계획승인|심의|관리처분|착공|철거|분양|이주|준공|이전고시|해산|청산|입주/.test(s ?? "");
+export const DONE_STAGE = (s) => /준공|이전고시|해산|청산|입주/.test(s ?? "");
 const LIGHT_STRIP =
   /주택재건축정비사업조합설립추진위원회|조합설립추진위원회|조합설립추진위|정비사업조합|정비사업|재건축사업|재개발사업|주택재건축|주택재개발|재정비촉진구역|촉진구역|도시환경정비|도시정비형|주택정비형|공공재개발|공공재건축|재건축|재개발|추진위원회|정비구역|정비계획|정비예정구역|예정구역|조합|아파트|사업|일대|일원|번지|주택|제(?=\d)/g;
 const circled = (s) => (s ?? "").replace(/[①-⑳]/g, (c) => String(CIRCLED.indexOf(c) + 1));
-const lightName = (s) => circled(s).replace(LIGHT_STRIP, "").replace(/[\s·ㆍ,\-_.~'’"“”()\[\]]/g, "").toLowerCase();
+export const lightName = (s) => circled(s).replace(LIGHT_STRIP, "").replace(/[\s·ㆍ,\-_.~'’"“”()\[\]]/g, "").toLowerCase();
 const nameParts = (s) => circled(s).split(/[,·ㆍ/&+()\[\]]|\s및\s|\s와\s|\s과\s/).map(lightName).filter((t) => t.length >= 2 && /[가-힣]/.test(t));
 const dongRootOf = (jibun) => (jibun ?? "").match(/^(\S+?)(동|가|읍|면|리)(\s|$)/)?.[1] ?? "";
-function staleNameRelation(p, q) {
+export function staleNameRelation(p, q) {
   const fp = lightName(p.name), fq = lightName(q.name);
   if (fp.length < 2 || fq.length < 2 || digitsConflict(fp, fq)) return false;
   if (fp === fq || containsToken(fq, fp) || containsToken(fp, fq)) return true;
@@ -1954,7 +1972,7 @@ function markStaleRecords(projects, dupOf) {
 /*  주의: 착공 목록에 남아 있어도 입주가 끝난 곳이 있을 수 있다(준공인가가 입주보다 늦음) — 그런 곳은 건물 판별(built)에 맡김 */
 /* ------------------------------------------------------------------ */
 const HOUSINGINFO_URL = "https://housinginfo.seoul.go.kr/hmpg/mabu/prst/cons/consDetail.do";
-async function fetchHousingInfo() {
+export async function fetchHousingInfo() {
   const cache = path.join(RAW, "housinginfo.json");
   const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < 1000 * 60 * 60 * 24 * 7;
   if (fresh && !process.env.FORCE) return JSON.parse(fs.readFileSync(cache, "utf8"));
@@ -1983,40 +2001,56 @@ async function fetchHousingInfo() {
   }
 }
 /** 이름 변형들: 괄호 제거 / 괄호를 공백으로(반포아파트(제3주구) → 반포3주구) / 괄호 안 항목 / "문래동진주" → "문래진주" */
-function nameVariants(raw) {
+export function nameVariants(raw) {
   const inner = raw.match(/\(([^)]*)\)/)?.[1]?.split(/[,·]/) ?? [];
   return [...new Set([raw, raw.replace(/\([^)]*\)/g, ""), raw.replace(/[()]/g, " "), raw.replace(/([가-힣]{2,})동(?=[가-힣])/, "$1"), ...inner].map(normName).filter((v) => v.length >= 2))];
 }
 /** 정보마당 구역명 ↔ 정보몽땅 사업장(같은 자치구): 가장 잘 맞는 하나. 짧은 쪽이 2글자면 완전 일치만(신반포22차 ⊃ "반포" 같은 오매칭 방지) */
 /** 괄호 안 내용만 정규화 ("반포아파트(제3주구)" → "3주구"). normName 은 괄호를 통째로 지우므로 먼저 벗긴다 */
-const innerOf = (raw) => normName((raw.match(/\(([^)]*)\)/g) ?? []).map((s) => s.slice(1, -1)).join(" "));
-function bestHousingMatch(row, projects) {
+export const innerOf = (raw) => normName((raw.match(/\(([^)]*)\)/g) ?? []).map((s) => s.slice(1, -1)).join(" "));
+/** 정보마당 목록 행 ↔ 사업장 하나의 매칭 점수 (0 = 후보 아님). bestHousingMatch 와 explain.mjs 가 함께 쓴다 */
+export function housingScore(row, p) {
+  if (p.gu !== row.gu) return 0;
   const rv = nameVariants(row.name);
   const ri = innerOf(row.name);
+  let s = 0;
+  for (const pv of nameVariants(p.name)) {
+    for (const v of rv) {
+      if (digitsConflict(pv, v)) continue;
+      if (pv === v) s = Math.max(s, 1);
+      else if (Math.min(pv.length, v.length) >= 3 && (containsToken(pv, v) || containsToken(v, pv))) s = Math.max(s, Math.min(pv.length, v.length) / Math.max(pv.length, v.length));
+    }
+  }
+  if (s < 0.5) return 0;
+  // 괄호 안 구분("반포주공1단지(3주구)" ↔ "반포아파트(제3주구)" / "(1,2,4주구)")이 같으면 가산, 숫자가 다르면 감점
+  const pi = innerOf(p.name);
+  if (ri && pi) s += ri === pi ? 0.5 : digitsConflict(ri, pi) ? -0.5 : 0;
+  // 동점이면 완료된 옛 기록보다 진행 기록, 초기 단계보다 후기 단계 기록을 고른다 (연희1 해산/착공, 장미아파트 추진위/착공)
+  if (DONE_STAGE(p.stage)) s -= 0.3;
+  if (/관리처분|이주|철거|착공|분양/.test(p.stage ?? "")) s += 0.1;
+  return s;
+}
+export function bestHousingMatch(row, projects) {
   let best = null, bestScore = 0;
   for (const p of projects) {
-    if (p.gu !== row.gu) continue;
-    let s = 0;
-    for (const pv of nameVariants(p.name)) {
-      for (const v of rv) {
-        if (digitsConflict(pv, v)) continue;
-        if (pv === v) s = Math.max(s, 1);
-        else if (Math.min(pv.length, v.length) >= 3 && (containsToken(pv, v) || containsToken(v, pv))) s = Math.max(s, Math.min(pv.length, v.length) / Math.max(pv.length, v.length));
-      }
-    }
-    if (s < 0.5) continue;
-    // 괄호 안 구분("반포주공1단지(3주구)" ↔ "반포아파트(제3주구)" / "(1,2,4주구)")이 같으면 가산, 숫자가 다르면 감점
-    const pi = innerOf(p.name);
-    if (ri && pi) s += ri === pi ? 0.5 : digitsConflict(ri, pi) ? -0.5 : 0;
-    // 동점이면 완료된 옛 기록보다 진행 기록, 초기 단계보다 후기 단계 기록을 고른다 (연희1 해산/착공, 장미아파트 추진위/착공)
-    if (DONE_STAGE(p.stage)) s -= 0.3;
-    if (/관리처분|이주|철거|착공|분양/.test(p.stage ?? "")) s += 0.1;
+    const s = housingScore(row, p);
     if (s > bestScore) {
       bestScore = s;
       best = p;
     }
   }
   return best;
+}/** 정보몽땅 '착공' 기록이 서울시 착공 중·이주완료 목록에 없으면 준공 추정(doneBy) — 그 조건. explain.mjs 가 이유를 보여준다 */
+export function doneByHousingEligible(p) {
+  const SMALL = /소규모|가로주택|자율주택|지역주택|리모델링|모아/;
+  if (p.source !== "정보몽땅") return { ok: false, reason: "정보몽땅 기록 아님(서울시 목록은 도정법 사업만)" };
+  if (p.cons) return { ok: false, reason: "서울시 착공 중 목록에 있음" };
+  if (p.moved) return { ok: false, reason: "서울시 이주완료 목록에 있음" };
+  if (p.built || p.stale || p.doneBy) return { ok: false, reason: "이미 다른 보정 적용" };
+  if (!/착공/.test(p.stage ?? "")) return { ok: false, reason: "원자료 단계가 '착공' 아님('분양'은 조합원 분양신청에도 쓰여 제외)" };
+  if (DONE_STAGE(p.stage)) return { ok: false, reason: "원자료가 이미 완료" };
+  if (SMALL.test(`${p.kind} ${p.name}`)) return { ok: false, reason: "소규모·가로주택·지역주택·리모델링·모아 (서울시 목록 대상 아님)" };
+  return { ok: true, reason: "정보몽땅 '착공'인데 서울시 착공 중·이주완료 목록 어디에도 없음" };
 }
 function applyHousingInfo(projects, info) {
   if (!info?.cons?.length) return;
@@ -2037,10 +2071,8 @@ function applyHousingInfo(projects, info) {
     }
   }
   // '분양'은 조합원 분양신청(착공 전) 단계에도 쓰여 착공 근거가 못 된다 (미아3구역: 분양인데 2027 착공 예정) → '착공'만
-  const SMALL = /소규모|가로주택|자율주택|지역주택|리모델링|모아/;
   for (const p of seoul) {
-    if (p.cons || p.moved || p.built || p.stale || p.doneBy) continue;
-    if (!/착공/.test(p.stage ?? "") || DONE_STAGE(p.stage) || SMALL.test(`${p.kind} ${p.name}`)) continue;
+    if (!doneByHousingEligible(p).ok) continue;
     p.doneBy = "정보마당";
     done++;
     console.log(`  준공 추정(서울시 착공 목록에 없음): ${p.gu} ${p.name} [${p.stage}]`);
@@ -2059,10 +2091,10 @@ function applyHousingInfo(projects, info) {
 const DATA_GO_KR_KEY = process.env.DATA_GO_KR_KEY ?? "";
 const max = (a, b) => (a > b ? a : b);
 let zoneByFidGlobal = new Map(); // main() 의 zoneByFid (applyBuildingRegistry 가 폴리곤 포함 판정에 씀)
-const bldrgstCachePath = path.join(RAW, "bldrgst.json");
+export const bldrgstCachePath = path.join(RAW, "bldrgst.json");
 let bldrgstDown = false;
 /** 법정동 코드: 서울은 emdCode, 경기·인천은 위치 문구의 "시군구 (구) 동" 을 lib/bjd-emd.json 에서 찾는다 */
-function emdCodeForProject(p) {
+export function emdCodeForProject(p) {
   if (p.emdCode) return p.emdCode;
   if (!EMD) emdCodeOf("", "");
   const loc = p.loc || p.jibun || "";
@@ -2089,7 +2121,7 @@ function emdCodeForProject(p) {
   }
   return null;
 }
-async function fetchRecapTitles(code, cache) {
+export async function fetchRecapTitles(code, cache) {
   const hit = cache.recap[code];
   if (hit && Date.now() - new Date(hit.at).getTime() < 1000 * 60 * 60 * 24 * 30) return hit.rows;
   if (!DATA_GO_KR_KEY || bldrgstDown) return hit?.rows ?? null;
@@ -2123,12 +2155,74 @@ async function fetchRecapTitles(code, cache) {
     return hit?.rows ?? null;
   }
 }
+/**
+ * 사용승인일 하한: 서울시 착공일(cons) 이후, 최근 동향(착공 전 단계 키워드) 날짜 이후, 그리고 2018년 이후
+ *  — 구역 안에 원래 있던 2010년대 소형 건물(청량리8 안 중앙애플비 2012 등)을 새 단지로 착각하지 않도록.
+ * 자료 단계가 아직 착공 전(관리처분·이주·철거)인데 준공됐다면 단계 갱신이 1~2년 늦은 것 → 2024년 이후 사용승인만 (대광연립 필지 안 2021년 45세대 빌라 제외)
+ */
+/** 건축물대장 준공 확인 대상인가 (후기 단계, 리모델링·지역주택·모아 제외) */
+export function registryEligible(p) {
+  if (/리모델링|지역주택|모아/.test(p.kind ?? "")) return { ok: false, reason: "리모델링·지역주택·모아타운은 대상 아님" };
+  if (DONE_STAGE(p.stage)) return { ok: false, reason: "원자료가 이미 완료" };
+  if (!LATE_STAGE(p.stage)) return { ok: false, reason: "후기 단계(관리처분·이주·철거·착공·분양) 아님" };
+  return { ok: true, reason: "후기 단계" };
+}
+export function registryMinDay(p) {
+  let minDay = "20180101";
+  const why = ["기본 2018-01-01"];
+  const startDay = p.cons?.date ?? p.extra?.find(([k]) => /착공/.test(k))?.[1]?.match(/\d{4}-\d{2}-\d{2}/)?.[0]; // 서울시 착공일 / 경기 추진현황의 착공일
+  if (startDay) {
+    minDay = max(minDay, startDay.replace(/-/g, ""));
+    why.push(`착공일 ${startDay}`);
+  }
+  if (p.note?.date && /추진위|조합설립|정비구역|사업시행|관리처분|시공사|이주|철거|착공|총회|입찰|공람/.test(p.note.kw ?? "")) {
+    minDay = max(minDay, p.note.date.replace(/-/g, ""));
+    why.push(`최근 동향 '${p.note.kw}' ${p.note.date}`);
+  }
+  if (!/착공|분양/.test(p.stage ?? "")) {
+    minDay = max(minDay, "20240101");
+    why.push("단계가 착공·분양 아님 → 2024-01-01");
+  }
+  return { minDay, startDay, why };
+}
+/**
+ * 총괄표제부 한 행이 이 사업장의 새 단지인가. ok=false 면 reason 에 어느 조건에서 걸러졌는지.
+ * opts.cacheOnly 면 지오코딩 캐시만 본다(explain.mjs, 네트워크 없이)
+ */
+export async function registryRowCheck(p, z, r, minDay, opts = {}) {
+  const SMALL = /소규모|가로주택|자율주택/;
+  const minHh = SMALL.test(`${p.kind} ${p.name}`) ? 30 : 50;
+  const parcelLike = !!z && (z.properties.src === "parcel" || z.properties.src === "special");
+  if (!/^\d{8}$/.test(r.use)) return { ok: false, reason: "사용승인일 없음" };
+  if (r.use <= minDay) return { ok: false, reason: `사용승인 ${r.use} ≤ 하한 ${minDay}` };
+  if (r.hh < minHh) return { ok: false, reason: `세대 ${r.hh} < ${minHh}` };
+  const addr = r.plat.replace(/번지.*$/, "").replace(/\s+외.*$/, "").trim();
+  if (!addr) return { ok: false, reason: "대지 지번 없음" };
+  // 새 단지의 대지가 구역(또는 자료의 구역면적)의 상당 부분이어야 한다 — 옆 단지·구역 안 소형 건물 제외 (신반포12차 ↔ 옆 신반포르엘, 가락프라자 안 59세대 빌라)
+  const refArea = z ? z.properties.area : p.area;
+  const ratio = parcelLike ? 0.6 : 0.25;
+  if (refArea && r.pa && r.pa < refArea * ratio) return { ok: false, reason: `대지 ${Math.round(r.pa)}㎡ < 구역 ${Math.round(refArea)}㎡ × ${ratio}` };
+  if (refArea && !r.pa && r.hh < 200) return { ok: false, reason: "대지면적 없음이고 세대 < 200" };
+  const g = opts.cacheOnly ? (geoCache[addr] ?? null) : await geocode(addr, "PARCEL");
+  if (!g) return { ok: false, reason: opts.cacheOnly && !(addr in geoCache) ? `지오코딩 캐시 없음 (${addr})` : `지오코딩 실패 (${addr})` };
+  let dist = 0;
+  if (z) {
+    // 지오코딩 점이 경계 바로 밖에 떨어지는 경우(천호3 ↔ 힐데스하임 천호)가 있어 서울시 구역 도형은 경계에서 40 m 까지 허용. 필지·특별계획구역 도형은 안쪽만
+    const inPoly = pointInGeom([g.lng, g.lat], z.geometry);
+    const dm = inPoly ? 0 : distToGeomM([g.lng, g.lat], z.geometry);
+    if (!inPoly && !(!parcelLike && dm <= 40)) return { ok: false, reason: `도형 밖 (경계까지 ${Math.round(dm)} m${parcelLike ? ", 필지·특별계획 도형은 안쪽만" : " > 40 m"})`, g };
+  } else {
+    // 도형이 없으면 마커에서 150 m 안 — 같은 단지를 여러 기록이 가져가면 applyBuildingRegistry 에서 하나만 남긴다
+    dist = p.lat != null ? distKm(g, p) : Infinity;
+    if (dist > 0.15) return { ok: false, reason: `마커에서 ${Math.round(dist * 1000)} m > 150 m`, g, dist };
+  }
+  return { ok: true, reason: "통과", g, dist };
+}
 async function applyBuildingRegistry(projects) {
   const cache = fs.existsSync(bldrgstCachePath) ? JSON.parse(fs.readFileSync(bldrgstCachePath, "utf8")) : { recap: {} };
   cache.recap ??= {};
   const prev = new Map((readJson(path.join(OUT, "projects.json")) ?? []).filter((p) => p?.useApr).map((p) => [p.no, p.useApr]));
-  const SMALL = /소규모|가로주택|자율주택/;
-  const cands = projects.filter((p) => LATE_STAGE(p.stage) && !DONE_STAGE(p.stage) && !/리모델링|지역주택|모아/.test(p.kind ?? ""));
+  const cands = projects.filter((p) => registryEligible(p).ok);
   console.log(`· 건축물대장 총괄표제부로 준공 확인: 후기 단계 ${cands.length}건${DATA_GO_KR_KEY ? "" : " (DATA_GO_KR_KEY 없음 → 이전 자료 유지)"}`);
   let confirmed = 0, kept = 0, noCode = 0, i = 0;
   const noZoneHits = [];
@@ -2151,39 +2245,12 @@ async function applyBuildingRegistry(projects) {
       continue;
     }
     const z = p.zoneFid ? zoneByFidGlobal.get(p.zoneFid) : null;
-    // 사용승인일 하한: 서울시 착공일(cons) 이후, 최근 동향(착공 전 단계 키워드) 날짜 이후, 그리고 2018년 이후
-    //  — 구역 안에 원래 있던 2010년대 소형 건물(청량리8 안 중앙애플비 2012 등)을 새 단지로 착각하지 않도록
-    let minDay = "20180101";
-    const startDay = p.cons?.date ?? p.extra?.find(([k]) => /착공/.test(k))?.[1]?.match(/\d{4}-\d{2}-\d{2}/)?.[0]; // 서울시 착공일 / 경기 추진현황의 착공일
-    if (startDay) minDay = max(minDay, startDay.replace(/-/g, ""));
-    if (p.note?.date && /추진위|조합설립|정비구역|사업시행|관리처분|시공사|이주|철거|착공|총회|입찰|공람/.test(p.note.kw ?? "")) minDay = max(minDay, p.note.date.replace(/-/g, ""));
-    // 자료 단계가 아직 착공 전(관리처분·이주·철거)인데 준공됐다면 단계 갱신이 1~2년 늦은 것 → 2024년 이후 사용승인만 (대광연립 필지 안 2021년 45세대 빌라 제외)
-    if (!/착공|분양/.test(p.stage ?? "")) minDay = max(minDay, "20240101");
-    const small = SMALL.test(`${p.kind} ${p.name}`);
-    const minHh = small ? 30 : 50;
-    const parcelLike = z && (z.properties.src === "parcel" || z.properties.src === "special");
+    const { minDay, startDay } = registryMinDay(p);
     let best = null;
     for (const r of rows) {
-      if (!/^\d{8}$/.test(r.use) || r.use <= minDay || r.hh < minHh) continue;
-      const addr = r.plat.replace(/번지.*$/, "").replace(/\s+외.*$/, "").trim();
-      if (!addr) continue;
-      // 새 단지의 대지가 구역(또는 자료의 구역면적)의 상당 부분이어야 한다 — 옆 단지·구역 안 소형 건물 제외 (신반포12차 ↔ 옆 신반포르엘, 가락프라자 안 59세대 빌라)
-      const refArea = z ? z.properties.area : p.area;
-      if (refArea && r.pa && r.pa < refArea * (parcelLike ? 0.6 : 0.25)) continue;
-      if (refArea && !r.pa && r.hh < 200) continue;
-      const g = await geocode(addr, "PARCEL");
-      if (!g) continue;
-      let inside, dist = 0;
-      if (z) {
-        // 지오코딩 점이 경계 바로 밖에 떨어지는 경우(천호3 ↔ 힐데스하임 천호)가 있어 서울시 구역 도형은 경계에서 40 m 까지 허용. 필지·특별계획구역 도형은 안쪽만
-        inside = pointInGeom([g.lng, g.lat], z.geometry) || (!parcelLike && distToGeomM([g.lng, g.lat], z.geometry) <= 40);
-      } else {
-        // 도형이 없으면 마커에서 150 m 안 — 같은 단지를 여러 기록이 가져가면 아래에서 하나만 남긴다
-        dist = p.lat != null ? distKm(g, p) : Infinity;
-        inside = dist <= 0.15;
-      }
-      if (!inside) continue;
-      if (!best || r.hh > best.hh) best = { ...r, dist, started: !!startDay };
+      const v = await registryRowCheck(p, z, r, minDay);
+      if (!v.ok) continue;
+      if (!best || r.hh > best.hh) best = { ...r, dist: v.dist, started: !!startDay };
     }
     if (best) {
       p.useApr = { date: `${best.use.slice(0, 4)}-${best.use.slice(4, 6)}-${best.use.slice(6, 8)}`, name: best.nm || undefined, units: best.hh, dongs: best.dong || undefined };
@@ -2208,7 +2275,7 @@ async function applyBuildingRegistry(projects) {
   console.log(`  사용승인 확인 ${confirmed}건${kept ? `, 이전 자료 유지 ${kept}` : ""}${noCode ? `, 법정동 코드 없음 ${noCode}` : ""}`);
 }
 
-function pickBest(cands, pn, loc) {
+export function pickBest(cands, pn, loc) {
   if (cands.length === 1) return cands[0];
   const scored = cands.map((z) => ({
     z,
@@ -2218,11 +2285,11 @@ function pickBest(cands, pn, loc) {
   return scored[0].z;
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 법정동 사전(site-law 와 동일 자료) → 읍면동 코드 + PNU */
 let EMD = null;
-function emdCodeOf(gu, jibun) {
+export function emdCodeOf(gu, jibun) {
   if (!EMD) {
     const p = path.join(ROOT, "lib", "bjd-emd.json");
     EMD = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : [];
@@ -2239,7 +2306,7 @@ function emdCodeOf(gu, jibun) {
   return { code, pnu };
 }
 
-function centerOf(b) {
+export function centerOf(b) {
   return { lng: +((b[0] + b[2]) / 2).toFixed(6), lat: +((b[1] + b[3]) / 2).toFixed(6) };
 }
 
@@ -2254,7 +2321,10 @@ function loadEnv() {
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// 직접 실행(node scripts/build-data.mjs)일 때만 빌드. scripts/explain.mjs 등이 import 할 때는 함수만 제공
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain)
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

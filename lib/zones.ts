@@ -59,27 +59,24 @@ export function codeLabel(code: string) {
 }
 
 /* ---------------- 진행단계 (정보몽땅) ---------------- */
+/*  규칙 본문은 lib/stage.mjs (앱·설명 도구 scripts/explain.mjs·회귀 검사 scripts/audit.mjs 공용). 여기서는 타입만 입힌다 */
 export type StageGroup = "계획" | "추진위" | "조합" | "시행" | "관리처분" | "공사" | "완료" | "기타";
 
 export function stageGroup(stage: string): StageGroup {
-  const s = stage ?? "";
-  // 앱이 보정해 붙인 완공 표시(" · 준공(건물 확인)", " · 준공 추정(…)", " · 준공(사용승인 …)", " · 옛 기록(…)")는 원자료 단계보다 우선.
-  // 2026-09-08: 원자료가 '착공'인 기록(동작1·개포주공1·반포3주구 …)은 아래 /^착공|철거/ 가 먼저 걸려 보정 표시가 무시되고 공사(후기)로 남던 문제
-  if (/ · (준공|옛 기록)/.test(s)) return "완료";
-  // 1기 신도시 노후계획도시 정비: 선도지구 선정 → 예비사업시행자 지정 → 특별정비구역 지정 (모두 조합설립 이전의 초기 단계)
-  if (/선도지구|예비사업시행자|특별정비구역/.test(s)) return "계획";
-  // 모아타운: 대상지 선정 → 관리계획 공람 → 관리계획 승인(관리지역 지정) — 개별 가로주택 조합 이전의 초기 단계
-  if (/대상지|관리계획/.test(s)) return "계획";
-  if (/^착공|철거/.test(s)) return "공사"; // "착공(부분준공)" 은 공사 중
-  if (/준공|이전고시|해산|청산|입주/.test(s)) return "완료";
-  if (/착공|분양/.test(s)) return "공사";
-  if (/관리처분/.test(s)) return "관리처분";
-  if (/사업시행|사업계획승인|심의|지구단위계획수립/.test(s)) return "시행";
-  if (/조합설립|창립총회|규약/.test(s)) return "조합";
-  if (/추진위|모집신고/.test(s)) return "추진위";
-  if (/정비계획|구역지정|정비구역|안전진단|예정|후보|선정/.test(s)) return "계획";
-  return "기타";
+  return S.stageGroup(stage) as StageGroup;
 }
+/** 어느 규칙이 세부 단계를 결정했는가 (설명용) */
+export const stageRule = S.stageRule as (stage: string) => { id: string; group: StageGroup; desc: string };
+/** 표시 문자열 "원자료 · 보정" 에서 원자료 단계만 */
+export const rawStage = S.rawStage as (stage: string | null | undefined) => string;
+/** 보정 규칙 항목 (lib/stage.mjs CORRECTIONS) */
+export type Correction = { id: "useApr" | "built" | "doneBy" | "stale" | "cons" | "moved"; done: boolean; src: string; suffix: (p: Project) => string; short: (p: Project) => string };
+/** 이 기록에 적용되는 보정(건축물대장·건물 자료·서울시 착공 현황·옛 기록·착공·이주). 없으면 null */
+export const correctionOf = S.correctionOf as (p: Project) => Correction | null;
+/** 로드 시 표시 문자열: 보정이 있으면 "원자료 · 보정", 없으면 원자료 그대로 */
+export const decorateStage = S.decorateStage as (p: Project) => string;
+/** 라벨·배지용 짧은 단계: 보정 결과 먼저("준공 2026-03"), 없으면 원자료 단계 */
+export const stageLabel = S.stageLabel as (p: Project) => string;
 
 /** 사업구분의 바탕 유형 — "재개발(주택정비형)"·"재개발" 처럼 시도마다 표기가 달라 괄호를 뗀 값으로 비교 */
 export function kindBase(kind: string) {
@@ -147,13 +144,9 @@ export const PHASE_STAGES: Record<Phase, StageGroup[]> = {
   완공: ["완료"],
 };
 export function phaseOf(stage: string): Phase {
-  const g = stageGroup(stage);
-  if (g === "완료") return "완공";
-  if (g === "시행") return "중기";
-  if (g === "관리처분" || g === "공사") return "후기";
-  return "초기";
+  return S.phaseOf(stage) as Phase;
 }
-export const isDoneStage = (stage: string) => stageGroup(stage) === "완료";
+export const isDoneStage = (stage: string): boolean => S.isDoneStage(stage);
 
 /* ---------------- 사업 방식 태그 (사업장 이름·구분에 표기된 것만) ---------------- */
 export const TAG_LIST = ["1기 신도시", "신속통합기획", "공공재개발·재건축", "모아타운", "역세권", "도심공공복합"] as const;
@@ -171,12 +164,11 @@ export function projectTags(name: string, kind: string): Tag[] {
   return TAG_LIST.filter((t) => TAG_RE[t].test(s));
 }
 
-/* ---------------- 구역 상태 ---------------- */
+/* ---------------- 구역 상태 (규칙은 lib/stage.mjs) ---------------- */
 /** 이 해 이전에 결정고시된 구역은 연결된 사업장이 없으면 "과거 구역"으로 보고 기본 숨김 (의제처리구역 자료는 1973년부터 들어 있다) */
-export const OLD_ZONE_YEAR = 2010;
-export function zoneYear(ntfc: string | undefined | null) {
-  const m = (ntfc ?? "").match(/NTC(\d{4})/);
-  return m ? +m[1] : null;
+export const OLD_ZONE_YEAR: number = S.OLD_ZONE_YEAR;
+export function zoneYear(ntfc: string | undefined | null): number | null {
+  return S.zoneYear(ntfc);
 }
 /**
  * 진행 = 진행 중 사업장 연결, 완공 = 연결 사업장 모두 완료 또는 (미연결인데) 구역 안 신축 고층 건물로 준공 판별(built),
@@ -184,10 +176,7 @@ export function zoneYear(ntfc: string | undefined | null) {
  */
 export type ZoneStatus = "진행" | "완공" | "과거" | "미상";
 export function zoneStatus(zp: Pick<ZoneProps, "ntfc" | "built">, linked: Project[] | undefined): ZoneStatus {
-  if (linked && linked.length) return linked.every((p) => isDoneStage(p.stage)) ? "완공" : "진행";
-  if (zp.built) return "완공";
-  const y = zoneYear(zp.ntfc);
-  return y == null || y < OLD_ZONE_YEAR ? "과거" : "미상";
+  return S.zoneStatus(zp, linked) as ZoneStatus;
 }
 
 /* ---------------- 자치구 ---------------- */
@@ -202,6 +191,7 @@ export const GU_LIST = Object.entries(GU).sort((a, b) => a[1].localeCompare(b[1]
 
 /* ---------------- 시도·시군구 (경기·인천 포함) ---------------- */
 import type { Project, Sido, ZoneProps } from "./types";
+import * as S from "./stage.mjs";
 import sggRaw from "./bjd-sgg.json";
 
 export const SIDO_LIST: Sido[] = ["서울", "경기", "인천"];

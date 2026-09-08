@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import type { GosiItem, Project, ProjectSummary, Selection, ZoneFeature } from "@/lib/types";
 import {
-  CATEGORY_COLOR, STAGE_COLOR, codeLabel, dongOf, fmtArea, guName, kindShort, ntfcDate, stageGroup, zoneCategory,
+  CATEGORY_COLOR, STAGE_COLOR, codeLabel, correctionOf, dongOf, fmtArea, guName, kindShort, ntfcDate, rawStage, stageGroup, stageLabel, zoneCategory,
 } from "@/lib/zones";
 import * as links from "@/lib/links";
 
@@ -155,9 +155,17 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               </span>
             )}
             {project?.stage && (
-              <span className="badge" style={{ background: STAGE_COLOR[stageGroup(project.stage)], color: "#fff" }}>
-                {project.stage}
-              </span>
+              // 보정이 있으면 배지는 보정 결과("준공 2026-03")를 먼저, 원자료 단계는 옆 회색 배지로 (2026-09-08 라벨·배지 정리)
+              <>
+                <span className="badge" style={{ background: STAGE_COLOR[stageGroup(project.stage)], color: "#fff" }} title={project.stage}>
+                  {stageLabel(project)}
+                </span>
+                {correctionOf(project) && (
+                  <span className="badge bg-gray-100 text-gray-500" title={`${project.source ?? "원자료"} 진행단계: ${rawStage(project.stage) || "미기재"} — ${correctionOf(project)?.src ?? ""}`}>
+                    원자료 {rawStage(project.stage) || "미기재"}
+                  </span>
+                )}
+              </>
             )}
           </div>
           <h2 className="text-[15px] font-bold leading-snug text-gray-900">{title || "(이름 없음)"}</h2>
@@ -209,6 +217,11 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               {project.useApr.units ? ` · ${project.useApr.units.toLocaleString()}세대` : ""}
               {project.useApr.dongs ? ` ${project.useApr.dongs}동` : ""}. 정보몽땅 단계는 &apos;{project.stage.split(" · ")[0]}&apos;에 머물러 있어 완공으로 분류했습니다.
               <span className="ml-1 text-emerald-600">(국토부 건축HUB 총괄표제부)</span>
+            </p>
+          )}
+          {project?.built && !project.useApr && (
+            <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800">
+              구역 안에 신축 고층 건물이 확인되어(GIS건물통합정보) 준공된 것으로 보고 완공으로 분류했습니다. 원자료 단계는 &apos;{rawStage(project.stage)}&apos;에 머물러 있습니다.
             </p>
           )}
           {project?.doneBy === "정보마당" && !project.useApr && (
@@ -444,7 +457,8 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] font-semibold text-gray-800">{p.name}</span>
                         <span className="block text-[11px] text-gray-500">
-                          {kindShort(p.kind)} · {p.stage || "단계 미기재"} · {p.jibun}
+                          {kindShort(p.kind)} · {stageLabel(p)}
+                          {correctionOf(p) ? ` (원자료 ${rawStage(p.stage) || "미기재"})` : ""} · {p.jibun}
                         </span>
                       </span>
                     </button>

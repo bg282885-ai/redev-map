@@ -5,7 +5,8 @@ import type { ChangeLog, DataMeta, Project, RecentItem, Selection, Sido, ZoneCol
 import UpdatesPanel from "./UpdatesPanel";
 import {
   CATEGORY_COLOR, CATEGORY_ORDER, KIND_LIST, OLD_ZONE_YEAR, PHASE_COLOR, PHASE_DESC, PHASE_ORDER, PHASE_STAGES, SIDO_LIST, STAGE_COLOR, STAGE_DESC,
-  TAG_LIST, kindMatches, kindShort, normName, phaseOf, projectTags, shortLabel, stageGroup, zoneCategory, zoneStatus, zoneYear,
+  TAG_LIST, correctionOf, decorateStage, kindMatches, kindShort, normName, phaseOf, projectTags, rawStage, shortLabel, stageGroup, stageLabel,
+  zoneCategory, zoneStatus, zoneYear,
   type Phase, type StageGroup, type Tag, type ZoneCategory, type ZoneStatus,
 } from "@/lib/zones";
 import DetailPanel from "./DetailPanel";
@@ -119,20 +120,12 @@ export default function MapApp() {
         };
         setZones(z);
         // 원자료(정보몽땅) 단계가 현실보다 늦는 경우를 다른 근거로 보정해 단계 뒤에 표시를 붙인다 (원문 단계는 그대로 두고 표시만):
-        //  건물 자료로 준공 확인(built) / 서울시 착공 중 목록에 없음(doneBy) / 통합 뒤 남은 옛 기록(stale) → 완공,
-        //  서울시 착공 목록에 있으면 착공(cons), 이주완료 목록에 있으면 이주완료(moved)
-        const DONE = /준공|청산|해산|이전고시|입주/;
+        //  건축물대장 사용승인(useApr) / 건물 자료로 준공 확인(built) / 서울시 착공 중 목록에 없음(doneBy) / 통합 뒤 남은 옛 기록(stale) → 완공,
+        //  서울시 착공 목록에 있으면 착공(cons), 이주완료 목록에 있으면 이주완료(moved). 규칙은 lib/stage.mjs CORRECTIONS (설명 도구·감사와 공용)
         setProjects(
           p.map((x) => {
-            const s = x.stage || "단계 미기재";
-            if (DONE.test(x.stage ?? "")) return x;
-            if (x.useApr) return { ...x, stage: `${s} · 준공(사용승인 ${x.useApr.date.slice(0, 7)})` };
-            if (x.built) return { ...x, stage: `${s} · 준공(건물 확인)` };
-            if (x.doneBy === "정보마당") return { ...x, stage: `${s} · 준공 추정(서울시 착공 현황에 없음)` };
-            if (x.stale) return { ...x, stage: `${s} · 옛 기록(통합 후 해산)` };
-            if (x.cons && !/착공|분양/.test(x.stage ?? "")) return { ...x, stage: `${s} · 착공 ${x.cons.date.slice(0, 7)}(서울시)` };
-            if (x.moved && !/이주|철거|착공|분양/.test(x.stage ?? "")) return { ...x, stage: `${s} · 이주완료(서울시)` };
-            return x;
+            const s = decorateStage(x);
+            return s === (x.stage ?? "") ? x : { ...x, stage: s };
           }),
         );
         setMeta(m);
@@ -264,8 +257,14 @@ export default function MapApp() {
     for (const [fid, st] of zoneStatusByFid) if (st === "완공" || st === "과거") s.add(fid);
     return s;
   }, [zoneStatusByFid]);
-  /* 사업장 동향 한 줄: 빌드 시 뽑은 최근 고시·공고 키워드(있으면), 없으면 진행단계 */
-  const descOf = (p: Project) => p.note?.kw ?? (p.stage || "단계 미기재");
+  /* 사업장 동향 한 줄: 보정 결과(준공·착공 등)가 있으면 그것을 먼저, 없으면 빌드 시 뽑은 최근 고시·공고 키워드, 그것도 없으면 진행단계
+     (2026-09-08: 라벨 "동작1 착공"이 후기처럼 읽히던 문제 — 원자료 단계는 패널 상세에만) */
+  const descOf = (p: Project) => (correctionOf(p) ? stageLabel(p) : p.note?.kw ?? stageLabel(p));
+  /* 목록·툴팁용: "준공 2026-03 (원자료 착공)" */
+  const stageText = (p: Project) => {
+    const c = correctionOf(p);
+    return c ? `${stageLabel(p)} (원자료 ${rawStage(p.stage) || "미기재"})` : stageLabel(p);
+  };
   /* 폴리곤 툴팁 둘째 줄 + 확대 시 라벨([짧은 이름, 동향]) */
   const { zoneSub, zoneLabel } = useMemo(() => {
     const sub = new Map<string, string>();
@@ -278,7 +277,7 @@ export default function MapApp() {
       const pick = shown.find((p) => !p.stale) ?? shown[0] ?? linked.find((p) => !p.stale) ?? linked[0];
       const y = zoneYear(fp.ntfc);
       if (pick) {
-        sub.set(fp.fid, `${kindShort(pick.kind)} · ${pick.stage || "단계 미기재"}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
+        sub.set(fp.fid, `${kindShort(pick.kind)} · ${stageText(pick)}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
         label.set(fp.fid, [shortLabel(pick.name), descOf(pick)]);
       } else if (fp.built) {
         sub.set(fp.fid, `${y ? `결정고시 ${y} · ` : ""}준공 추정 (신축 고층 ${fp.builtN ?? ""}동)`);
@@ -666,7 +665,7 @@ export default function MapApp() {
                       <span className="block truncate text-[13px] font-semibold text-gray-800">{p.name}</span>
                       <span className="block truncate text-[11px] text-gray-500">
                         {p.sido && p.sido !== "서울" ? `${p.sido} ` : ""}
-                        {p.gu} · {kindShort(p.kind)} · {p.stage || "단계 미기재"}
+                        {p.gu} · {kindShort(p.kind)} · {stageText(p)}
                         {p.zoneFid ? "" : " · 구역 미연결"}
                       </span>
                     </span>
@@ -749,7 +748,11 @@ function Legend() {
         ))}
       </div>
       <p className="mt-1 text-[10px] leading-snug text-gray-400">
-        원 마커 = 사업장 위치(확대하면 경계가 있는 곳은 경계만 보임) · 실선 면 = 정비구역 경계 · 점선 면 = 정비구역 미지정 단지의 특별계획구역(긴 점선)·대표지번 필지(짧은 점선). 확대하면 구역마다 이름·최근 동향 라벨. 완공·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김.
+        <span className="font-semibold text-gray-500">● 점</span> = 사업장 대표 위치. 경계 자료가 없는 사업장(모아타운·소규모·경기·인천 대부분)은 점만 보이며, 점선 테두리 점은 대략 위치(모아타운
+        대상지·지번 합병). 다른 구역 경계 안이나 가에 찍힌 점도 그 구역과는 별개 사업이다. 확대하면 경계가 있는 곳의 점은 숨김.
+        <br />
+        <span className="font-semibold text-gray-500">▰ 면</span> = 경계. 실선 = 정비구역, 긴 점선 = 특별계획구역, 짧은 점선 = 대표지번 필지(정비구역 미지정 단지). 완공·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은
+        숨김. 확대하면 이름 라벨 — 둘째 항목은 보정 결과(준공·착공)나 최근 동향이며, 원자료 단계는 상세 패널에서 확인.
       </p>
     </div>
   );
