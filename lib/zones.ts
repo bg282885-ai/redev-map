@@ -63,6 +63,8 @@ export type StageGroup = "계획" | "추진위" | "조합" | "시행" | "관리�
 
 export function stageGroup(stage: string): StageGroup {
   const s = stage ?? "";
+  // 1기 신도시 노후계획도시 정비: 선도지구 선정 → 예비사업시행자 지정 → 특별정비구역 지정 (모두 조합설립 이전의 초기 단계)
+  if (/선도지구|예비사업시행자|특별정비구역/.test(s)) return "계획";
   if (/^착공|철거/.test(s)) return "공사"; // "착공(부분준공)" 은 공사 중
   if (/준공|이전고시|해산|청산|입주/.test(s)) return "완료";
   if (/착공|분양/.test(s)) return "공사";
@@ -148,9 +150,10 @@ export function phaseOf(stage: string): Phase {
 export const isDoneStage = (stage: string) => stageGroup(stage) === "완료";
 
 /* ---------------- 사업 방식 태그 (사업장 이름·구분에 표기된 것만) ---------------- */
-export const TAG_LIST = ["신속통합기획", "공공재개발·재건축", "모아타운", "역세권", "도심공공복합"] as const;
+export const TAG_LIST = ["1기 신도시", "신속통합기획", "공공재개발·재건축", "모아타운", "역세권", "도심공공복합"] as const;
 export type Tag = (typeof TAG_LIST)[number];
 const TAG_RE: Record<Tag, RegExp> = {
+  "1기 신도시": /노후계획도시|1기\s*신도시|선도지구/,
   신속통합기획: /신속통합|신통기획/,
   "공공재개발·재건축": /공공재개발|공공재건축|공공정비|공공\s*시행|공공참여/,
   모아타운: /모아타운|모아주택/,

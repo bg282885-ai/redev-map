@@ -47,8 +47,10 @@ export type Project = {
   gu: string;
   /** 시군구 코드 5자리 */
   guCode: string | null;
-  /** 자료 출처: 정보몽땅 / 경기도 / 인천시 */
-  source?: "정보몽땅" | "경기도" | "인천시";
+  /** 자료 출처: 정보몽땅 / 경기도 / 인천시 / 1기신도시(data/newtown1.json — 국토부 선도지구·시 지정 고시 정리) */
+  source?: "정보몽땅" | "경기도" | "인천시" | "1기신도시";
+  /** 1기 신도시 선도지구의 구성 단지 (장소 검색어·단지명) */
+  complexes?: { q: string; core: string }[];
   /** 원문 위치 표기 (경기·인천 자료의 '위치' 열) */
   loc?: string;
   /** 구역 면적 ㎡ (경기·인천 자료) */
@@ -77,7 +79,7 @@ export type Project = {
   /** map=정보몽땅 고시코드, point=대표지번이 구역 안, name=구역명 유사, parcel=정비구역 없어 대표지번 필지 경계를 씀 */
   zoneHow: "map" | "point" | "name" | "parcel" | "special" | null;
   /** 최근 동향 한 줄 (빌드 시 정보몽땅 고시·공고 제목 / 경기 자료의 최신 인가일에서 뽑음) — 지도 라벨·패널 표시용 */
-  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" } | null;
+  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" | "국토부·시 발표" } | null;
 };
 
 export type DataMeta = {

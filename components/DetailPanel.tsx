@@ -248,7 +248,12 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
               <Row key={k} k={k} v={v} />
             ))}
             <p className="mt-1 text-[11px] text-gray-400">
-              {project.source === "경기도" ? "경기도 일반 정비사업 추진현황(공공데이터포털)" : "인천광역시 도시 및 주거환경 정비사업 추진현황(공공데이터포털, 월간)"} 기준.
+              {project.source === "경기도"
+                ? "경기도 일반 정비사업 추진현황(공공데이터포털)"
+                : project.source === "1기신도시"
+                  ? "국토교통부 1기 신도시 선도지구 선정(2024-11-27)과 각 시의 특별정비구역 지정 고시·발표를 정리한 목록(노후계획도시정비특별법). 경계는 구성 단지의 대표지번 필지를 합친 것"
+                  : "인천광역시 도시 및 주거환경 정비사업 추진현황(공공데이터포털, 월간)"}{" "}
+              기준.
               {project.locSrc === "geocode" ? " 마커는 위치 열의 첫 지번을 지오코딩한 지점입니다." : ""}
               {project.locSrc === "place" ? " 원자료에 위치(지번)가 없어 마커는 단지명으로 검색한 지점입니다." : ""}
               {project.locSrc === "emd" ? " 준공 후 지번이 합병되어 옛 지번을 찾을 수 없어, 마커는 법정동 중심에 표시한 대략 위치입니다." : ""}

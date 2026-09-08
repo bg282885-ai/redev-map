@@ -447,7 +447,41 @@ async function geocode(address, type = "PARCEL") {
  * 합병되어 지오코딩이 안 되는 아파트 단지(하안주공5단지·철산주공13단지 등)를 단지명으로 찾는다.
  * 결과는 같은 시군구 안에 있고 제목이 단지명을 포함하는 것만 받는다(정류장·경로당·상가 등 부속시설은 뒤로).
  */
-const PLACE_NOISE = /(정류장|버스|입구|경로당|노인정|관리소|관리사무소|상가|어린이집|유치원|학교|주차장|사거리|삼거리)/;
+const PLACE_NOISE = /(정류장|버스|입구|출입구|정문|후문|경비실|경로당|노인정|관리소|관리사무소|상가|어린이집|유치원|학교|주차장|사거리|삼거리|민방위)/;
+/** 장소 검색 후보 지점들 (점수순, 최대 4개) — 경비실·입구 지점은 도로 필지에 떨어지기도 해서 필지 조회는 차례로 시도한다 */
+async function searchPlaceItems(query, sidoFull, gu, core) {
+  const ck = `PLACES:${query}`;
+  if (ck in geoCache) return geoCache[ck];
+  if (!VWORLD_KEY || vworldDown) return [];
+  const u = new URL("https://api.vworld.kr/req/search");
+  u.search = new URLSearchParams({
+    service: "search", request: "search", version: "2.0", crs: "EPSG:4326", size: "10", page: "1",
+    query, type: "place", format: "json", errorformat: "json", key: VWORLD_KEY,
+  }).toString();
+  const head = `${sidoFull} ${gu.split(" ")[0]}`;
+  const norm = (s) => (s ?? "").replace(/\(.*?\)/g, "").replace(/아파트|APT|\s|[·,.\-]/gi, "");
+  const c = norm(core);
+  try {
+    const j = await (await fetch(u, { headers: { Referer: `https://${VWORLD_DOMAIN}/`, "User-Agent": UA } })).json();
+    const items = (j.response?.result?.items ?? []).filter((it) => {
+      const addr = it.address?.parcel ?? it.address?.road ?? "";
+      if (addr && !addr.startsWith(head)) return false; // 주소가 비어 있는 항목(단지 대표점)은 통과
+      const t = norm(it.title);
+      return c.length >= 3 && (t.includes(c) || c.includes(t));
+    });
+    const score = (it) => (norm(it.title) === c ? 4 : 0) + (PLACE_NOISE.test(it.title) ? 0 : 2) + (it.title.includes("/") ? 0 : 1);
+    items.sort((a, b) => score(b) - score(a));
+    const v = items.filter((it) => it.point).slice(0, 4).map((it) => ({ lng: +(+it.point.x).toFixed(6), lat: +(+it.point.y).toFixed(6), title: it.title }));
+    geoCache[ck] = v;
+    vworldFails = 0;
+    await sleep(70);
+    return v;
+  } catch (e) {
+    console.warn("  장소 검색 오류", query, e.message);
+    if (++vworldFails >= 3) vworldDown = true;
+    return [];
+  }
+}
 async function searchPlace(query, sidoFull, gu, core) {
   const ck = `PLACE:${query}`;
   if (ck in geoCache) return geoCache[ck];
@@ -831,6 +865,38 @@ async function fetchIncheon() {
 }
 
 /**
+ * 1기 신도시(분당·일산·평촌·산본·중동) 노후계획도시 정비 선도지구 — data/newtown1.json (국토부 선정 발표·각 시 지정 고시 정리).
+ * 경기데이터드림 목록에 없어 별도 출처로 넣는다(2026-09-08). 좌표·경계는 구성 단지(complexes)를 V-World 장소 검색 → 필지로 만든다.
+ */
+function fetchNewtown() {
+  const file = path.join(ROOT, "data", "newtown1.json");
+  if (!fs.existsSync(file)) return [];
+  const j = JSON.parse(fs.readFileSync(file, "utf8"));
+  SOURCE_INFO.newtown = j.updated ?? "";
+  const out = j.items.map((it, i) => {
+    const extra = [["신도시", `${it.newtown}${it.zoneNo ? ` · ${it.zoneNo}` : ""}`], ["구성 단지", it.complexes.map((c) => c.split("|")[0]).join(" · ")]];
+    if (it.selected) extra.push(["선도지구 선정", it.selected]);
+    if (it.designated) extra.push(["특별정비구역 지정", it.designated]);
+    if (it.planned) extra.push(["계획 세대수", `${it.planned.toLocaleString()}세대`]);
+    const note = it.designated
+      ? { date: it.designated, kw: "특별정비구역 지정", src: "국토부·시 발표" }
+      : it.note
+        ? { ...it.note, src: "국토부·시 발표" }
+        : it.selected
+          ? { date: it.selected, kw: "선도지구 선정", src: "국토부·시 발표" }
+          : null;
+    return {
+      no: 41900000 + i + 1, sido: "경기", gu: it.gu, guCode: sggCodeOf("경기도", it.gu), source: "1기신도시",
+      kind: "재건축(노후계획도시)", name: it.name, loc: it.loc ?? "", jibun: "", area: null, extra,
+      stage: it.stage, docs: `${it.units.toLocaleString()}세대${it.planned ? ` (계획 ${it.planned.toLocaleString()})` : ""}`, cafe: null, map: null,
+      complexes: it.complexes.map((c) => ({ q: `${it.gu} ${c}`, core: c })), dong: it.dong, note,
+    };
+  });
+  console.log(`· 1기 신도시 선도지구 ${out.length}건 (data/newtown1.json, ${SOURCE_INFO.newtown})`);
+  return out;
+}
+
+/**
  * 경기 — 일반 정비사업 추진현황 (경기데이터드림 시트 S62GFEEN7JMLMA0PH6CF19108891)
  * 공공데이터포털 15119846 은 파일이 없고 경기데이터드림으로 연결만 되므로, 화면이 쓰는 시트 조회(searchSheetData.do)를
  * 세션 쿠키 + CSRF 토큰과 함께 호출한다 (키 불필요, 100건씩 페이지).
@@ -1141,7 +1207,35 @@ async function addParcelZones(projects, zones, prevZones) {
   for (const p of cands) {
     const fid = `P${p.no}`;
     let feat = null;
-    const r = await fetchParcel(p, cache);
+    let r;
+    if (p.complexes) {
+      // 1기 신도시 선도지구: 구성 단지마다 장소 검색 → 필지, 전부 합쳐 MultiPolygon (같은 필지는 한 번만)
+      const polys = [];
+      const seenPnu = new Set();
+      let area = 0;
+      const found = [];
+      for (const c of p.complexes) {
+        // 단지 이름 대안("양지5단지 한양|양지마을 한양5단지")과 검색 결과 지점(최대 4곳)을 차례로 → 지목 '대'인 단지 필지가 나올 때까지
+        let rr = null;
+        outer: for (const alt of c.core.split("|")) {
+          for (const pt of await searchPlaceItems(`${p.gu.split(" ")[0]} ${alt.trim()}`, SIDO_FULL[p.sido], p.gu, alt.trim())) {
+            const r2 = await fetchParcel({ ...p, pnu: null, lng: pt.lng, lat: pt.lat }, cache);
+            if (r2?.geometry) {
+              rr = r2;
+              break outer;
+            }
+          }
+        }
+        if (!rr || (rr.pnu && seenPnu.has(rr.pnu))) continue;
+        if (rr.pnu) seenPnu.add(rr.pnu);
+        const g = rr.geometry;
+        polys.push(...(g.type === "Polygon" ? [g.coordinates] : g.coordinates));
+        area += rr.area;
+        found.push(c.core.split("|")[0]);
+      }
+      if (polys.length) r = { geometry: { type: "MultiPolygon", coordinates: polys }, area, addr: `${found.length}/${p.complexes.length} 단지 필지: ${found.join(" · ")}`, pnu: null };
+      else r = { skip: "단지 필지 없음" };
+    } else r = await fetchParcel(p, cache);
     if (r?.geometry) {
       const g = r.geometry;
       feat = {
@@ -1166,6 +1260,7 @@ async function addParcelZones(projects, zones, prevZones) {
     }
   }
   fs.writeFileSync(parcelCachePath, JSON.stringify(cache));
+  fs.writeFileSync(geoCachePath, JSON.stringify(geoCache)); // 단지 장소 검색 결과도 캐시에
   console.log(`  필지 경계 ${n}건${kept ? ` (+이전 자료 유지 ${kept})` : ""}, 규모·지목 미달로 제외 ${skipped}건`);
 }
 
@@ -1204,7 +1299,7 @@ async function main() {
     }
   }
   const seoulList = await collect("서울", "cleanup", async () => (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" })));
-  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon))];
+  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon)), ...fetchNewtown()];
   if (!list.length) throw new Error("사업장 자료를 하나도 얻지 못함");
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
   seedGeoCacheFromPrevious();
@@ -1231,6 +1326,18 @@ async function main() {
     if (loc) stat.geo++;
     // 지번으로 못 찾으면(위치 열이 비었거나 준공 후 지번 합병) 단지명으로 장소 검색 (2026-09-08, 광명 하안주공 등)
     let byPlace = false, byEmd = false;
+    // 1기 신도시 선도지구: 구성 단지 이름으로 (첫 단지 위치)
+    if (!loc && p.complexes) {
+      for (const c of p.complexes) {
+        const alt = c.core.split("|")[0].trim();
+        loc = await searchPlace(`${p.gu.split(" ")[0]} ${alt}`, SIDO_FULL[p.sido], p.gu, alt);
+        if (loc) {
+          byPlace = true;
+          stat.place++;
+          break;
+        }
+      }
+    }
     if (!loc) {
       for (const q of placeQueries(p.gu, p.name)) {
         loc = await searchPlace(q.query, SIDO_FULL[p.sido], p.gu, q.core);
@@ -1333,7 +1440,8 @@ async function main() {
       zoneId: zone?.properties.id ?? null,
       zoneFid: zone?.properties.fid ?? null,
       zoneHow: how,
-      note: noteFor(p, board),
+      note: p.note ?? noteFor(p, board),
+      ...(p.complexes ? { complexes: p.complexes } : {}),
     });
   }
   fs.writeFileSync(geoCachePath, JSON.stringify(geoCache));
@@ -1387,8 +1495,10 @@ async function main() {
     for (const p of prev) {
       if (p.lat == null || p.lng == null) continue;
       if (p.locSrc === "place") {
-        // 단지명 장소 검색으로 얻은 좌표도 첫 검색어 키로 선적재 (러너에서 V-World 가 막혀도 유지)
-        const q = placeQueries(p.gu, p.name)[0];
+        // 단지명 장소 검색으로 얻은 좌표도 첫 검색어 키로 선적재 (러너에서 V-World 가 막혀도 유지). 1기 신도시는 첫 구성 단지 검색어
+        const q = p.complexes?.length
+          ? { query: `${p.gu.split(" ")[0]} ${p.complexes[0].core.split("|")[0].trim()}` }
+          : placeQueries(p.gu, p.name)[0];
         if (q && !(`PLACE:${q.query}` in geoCache)) {
           geoCache[`PLACE:${q.query}`] = { lng: p.lng, lat: p.lat };
           n++;
