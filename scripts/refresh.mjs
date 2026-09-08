@@ -24,7 +24,12 @@ const STATUS = path.join(RAW, "refresh-status.json");
 const DATA_FILES = ["public/data/projects.json", "public/data/zones.geojson", "public/data/changes.json"];
 fs.mkdirSync(RAW, { recursive: true });
 
-const ts = () => new Date().toISOString().replace("T", " ").slice(0, 19);
+// 로그는 PC 현지 시각(KST)으로 — 커밋 메시지의 시각과 맞춘다
+const ts = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
 function log(s) {
   const line = `[${ts()}] ${s}`;
   console.log(line);
