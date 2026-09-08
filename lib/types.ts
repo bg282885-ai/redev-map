@@ -18,8 +18,9 @@ export type ZoneProps = {
   bbox: BBox;
   /** 시도 (서울·경기·인천). 없으면 서울 */
   sido?: Sido;
-  /** 자료 출처: seoul = 서울시 의제처리구역 SHP, vworld = V-World 지구단위계획(UPIS) 레이어, parcel = 대표지번 필지(정비구역 미지정 재건축 단지, V-World 지적도) */
-  src?: "seoul" | "vworld" | "parcel" | "special";
+  /** 자료 출처: seoul = 서울시 의제처리구역 SHP, vworld = V-World 지구단위계획(UPIS) 레이어, parcel = 대표지번 필지(정비구역 미지정 재건축 단지, V-World 지적도),
+   *  special = 특별계획구역(OA-21164), seoulplan = 서울플랜+ 모아타운 대상지·관리지역 도형(도시계획포털 도시계획사업 현황, code BZ201) */
+  src?: "seoul" | "vworld" | "parcel" | "special" | "seoulplan";
   /** parcel 일 때 필지 PNU·주소 */
   pnu?: string | null;
   jibun?: string;
@@ -93,7 +94,8 @@ export type Project = {
   zoneId: string | null;
   zoneFid: string | null;
   /** map=정보몽땅 고시코드, point=대표지번이 구역 안, name=구역명 유사, parcel=정비구역 없어 대표지번 필지 경계를 씀 */
-  zoneHow: "map" | "point" | "name" | "parcel" | "special" | null;
+  /** seoulplan = 서울플랜+ 모아타운 도형(출처가 도형을 함께 줌) */
+  zoneHow: "map" | "point" | "name" | "parcel" | "special" | "seoulplan" | null;
   /** 최근 동향 한 줄 (빌드 시 정보몽땅 고시·공고 제목 / 경기 자료의 최신 인가일에서 뽑음) — 지도 라벨·패널 표시용 */
   note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" | "국토부·시 발표" | "도시계획포털" } | null;
 };

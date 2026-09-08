@@ -179,7 +179,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 : ""}
             {project && zp && project.zoneHow && (
               <span className="ml-1 text-gray-400">
-                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : project.zoneHow === "special" ? "경계: 지구단위계획 특별계획구역 (정비구역 미지정)" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
+                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : project.zoneHow === "special" ? "경계: 지구단위계획 특별계획구역 (정비구역 미지정)" : project.zoneHow === "seoulplan" ? "경계: 서울플랜+ 모아타운 대상지·관리지역" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
               </span>
             )}
           </p>
@@ -307,7 +307,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 : project.source === "1기신도시"
                   ? "국토교통부 1기 신도시 선도지구 선정(2024-11-27)과 각 시의 특별정비구역 지정 고시·발표를 정리한 목록(노후계획도시정비특별법). 경계는 구성 단지의 대표지번 필지를 합친 것"
                   : project.source === "모아타운"
-                    ? "서울 도시계획포털의 소규모주택정비 관리계획(모아타운 관리계획) 승인 고시(관리지역 지정)와 서울시 모아타운 대상지 현황을 정리한 것. 관리지역 경계 벡터는 공개되지 않아 마커로만 표시하며, 경계는 아래 고시 원문의 지형도면에서 확인"
+                    ? "서울플랜+(도시계획포털 도시계획사업 현황)의 모아타운 대상지·관리지역 도형과 추진단계, 소규모주택정비 관리계획(모아타운 관리계획) 승인 고시, 서울시 모아타운 대상지 현황을 합친 것. 서울플랜+에 아직 없는 최근 대상지는 대표지번 점만 표시하며, 법적 경계는 고시 원문의 지형도면"
                     : "인천광역시 도시 및 주거환경 정비사업 추진현황(공공데이터포털, 월간)"}{" "}
               기준.
               {project.locSrc === "geocode" ? " 마커는 위치 열의 첫 지번을 지오코딩한 지점입니다." : ""}
@@ -337,7 +337,24 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             </p>
           </Card>
         )}
-        {zp && zp.src !== "parcel" && zp.src !== "special" && (
+        {zp && zp.src === "seoulplan" && (
+          <Card title="모아타운 구역 (서울플랜+)" onTitleClick={sel.type === "project" ? () => onSelectZone(zp.fid) : undefined}>
+            <Row k="구역명" v={zp.name || "-"} />
+            <Row k="면적" v={fmtArea(zp.area)} />
+            <Row k="도형 코드" v={zp.fid} mono />
+            <p className="mt-1 text-[11px] text-gray-400">
+              서울시 도시계획포털 서울플랜+ &apos;도시계획사업 현황&apos;의 모아타운 도형입니다. 관리계획이 승인(관리지역 지정)된 곳은 고시된 관리지역 경계이고, 대상지 선정·자문·심의 단계인 곳은
+              검토 범위라 승인 때 경계가 바뀔 수 있습니다. 법적 경계는 고시문의 지형도면이 기준입니다.{" "}
+              <a href={links.seoulPlanMoatown()} target="_blank" rel="noreferrer" className="underline hover:text-brand">
+                서울플랜+ 모아타운
+              </a>
+            </p>
+            {zoneProjects.length > 1 && sel.type === "project" && (
+              <p className="mt-1 text-[11px] text-gray-500">이 구역에 사업장 {zoneProjects.length}건이 연결되어 있습니다.</p>
+            )}
+          </Card>
+        )}
+        {zp && zp.src !== "parcel" && zp.src !== "special" && zp.src !== "seoulplan" && (
           <Card title="정비구역" onTitleClick={sel.type === "project" ? () => onSelectZone(zp.fid) : undefined}>
             <Row k="구역명" v={zp.name || "-"} />
             <Row k="유형" v={codeLabel(zp.code)} />

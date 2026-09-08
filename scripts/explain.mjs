@@ -130,7 +130,7 @@ async function explain(p) {
     const kc = B.kindClass(p.kind);
     if (kc === "none") L("연결 규칙", "지역주택·리모델링·모아타운은 정비구역 폴리곤과 묶지 않음(kindClass none)");
     if (zp) {
-      const howText = { map: "정보몽땅 지도코드 = 결정고시 관리코드", point: "대표지번 좌표가 폴리곤 안(유형 호환·이름 숫자 일치)", name: "구역명 유사도(같은 시도, 1~3km)", parcel: "정비구역 없어 대표지번 필지 경계(V-World 지적도)", special: "정비구역 없어 좌표가 든 지구단위계획 특별계획구역" }[p.zoneHow] ?? p.zoneHow;
+      const howText = { map: "정보몽땅 지도코드 = 결정고시 관리코드", point: "대표지번 좌표가 폴리곤 안(유형 호환·이름 숫자 일치)", name: "구역명 유사도(같은 시도, 1~3km)", parcel: "정비구역 없어 대표지번 필지 경계(V-World 지적도)", special: "정비구역 없어 좌표가 든 지구단위계획 특별계획구역", seoulplan: "서울플랜+ 모아타운 도형(출처가 도형을 함께 줌)" }[p.zoneHow] ?? p.zoneHow;
       L("방법", `${p.zoneHow} — ${howText}`);
       L("구역", `${zp.name}  [${zp.code}] fid ${zp.fid}`);
       L("고시/면적/출처", `${dateOf(zp.ntfc)} (${zp.ntfc || "-"}) · ${fmtArea(zp.area)} · src ${zp.src ?? "seoul"}${zp.id ? ` · 관리코드 ${zp.id}` : ""}`);
@@ -160,7 +160,7 @@ async function explain(p) {
           const s = B.nameScore(pn, qn);
           let why = "";
           if (q.dupOf) why = `중복 도형(dupOf ${q.dupOf})`;
-          else if (q.src === "parcel" || q.src === "special") why = "필지·특별계획 도형(다른 사업장의 것)";
+          else if (q.src === "parcel" || q.src === "special" || q.src === "seoulplan") why = "필지·특별계획·모아타운 도형(다른 사업장의 것)";
           else if (!B.compatible(p.kind, q.code)) why = `유형 불일치 (${p.kind} ↔ ${q.code})`;
           else if (B.digitsConflict(pn, qn)) why = `이름 숫자 충돌 (${pn} ↔ ${qn})`;
           else if (/^UQ51[012]/.test(q.code) && s < 0.8) why = `울타리(촉진지구)라 이름 점수 ${s.toFixed(2)} < 0.8 필요`;

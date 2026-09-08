@@ -28,11 +28,14 @@ export const CODE_LABEL: Record<string, string> = {
   UQ5130: "고밀복합형 재정비촉진지구",
   UQ5140: "존치정비구역",
   UQ5150: "존치관리구역",
+  /** 서울플랜+(도시계획포털 도시계획사업 현황) 모아타운 도형 — 소규모주택정비 관리지역·대상지 */
+  BZ201: "모아타운(소규모주택정비 관리지역)",
 };
 
-export type ZoneCategory = "재개발" | "재건축" | "주거환경" | "촉진지구" | "도시개발" | "소규모" | "기타";
+export type ZoneCategory = "재개발" | "재건축" | "주거환경" | "촉진지구" | "도시개발" | "소규모" | "모아타운" | "기타";
 
 export function zoneCategory(code: string): ZoneCategory {
+  if (code === "BZ201") return "모아타운";
   if (/^UQ12(2|3)/.test(code)) return "재개발";
   if (code === "UQ1240" || code === "UQ1206") return "재건축";
   if (/^UQ121/.test(code)) return "주거환경";
@@ -49,10 +52,11 @@ export const CATEGORY_COLOR: Record<ZoneCategory, string> = {
   촉진지구: "#8B5CF6",
   도시개발: "#6B7280",
   소규모: "#D97706",
+  모아타운: "#0D9488",
   기타: "#9CA3AF",
 };
 
-export const CATEGORY_ORDER: ZoneCategory[] = ["재개발", "재건축", "주거환경", "소규모", "촉진지구", "도시개발", "기타"];
+export const CATEGORY_ORDER: ZoneCategory[] = ["재개발", "재건축", "주거환경", "소규모", "모아타운", "촉진지구", "도시개발", "기타"];
 
 export function codeLabel(code: string) {
   return CODE_LABEL[code] ?? code;
@@ -122,7 +126,7 @@ export const STAGE_DESC: Record<StageGroup, string> = {
   시행: "사업시행인가 · 심의",
   관리처분: "관리처분인가",
   공사: "철거 · 착공 · 분양",
-  완료: "준공 · 이전고시 · 조합해산·청산",
+  완료: "준공 · 이전고시 · 조합해산·청산 · 대상지 취소·구역 해제",
   기타: "단계 미기재",
 };
 
@@ -135,7 +139,7 @@ export const PHASE_DESC: Record<Phase, string> = {
   초기: "정비계획·구역지정 → 추진위원회 → 조합설립인가 (단계 미기재 포함)",
   중기: "사업시행인가 · 심의",
   후기: "관리처분인가 → 철거·착공·분양",
-  완공: "준공 · 이전고시 · 조합해산·청산 — 기본 숨김",
+  완공: "준공 · 이전고시 · 조합해산·청산 · 취소·해제 — 기본 숨김",
 };
 export const PHASE_STAGES: Record<Phase, StageGroup[]> = {
   초기: ["계획", "추진위", "조합", "기타"],

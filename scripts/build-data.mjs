@@ -942,7 +942,7 @@ function parseMoaTitle(title) {
   if (!m) return null;
   return { dongAdm: m[1], dong: dongLegal(m[1]), bon: m[2], loc: `${m[1]} ${m[2]}번지 일대`, label: (inner ? t.split("(")[0] : head.split(/소규모주택정비|모아타운/)[0]).trim() };
 }
-async function fetchMoatown() {
+async function fetchMoatown(plan) {
   const cache = path.join(RAW, "moatown-ntfc.json");
   let list = null;
   try {
@@ -980,9 +980,79 @@ async function fetchMoatown() {
     const hits = emdList.filter((f) => f.startsWith("서울특별시 ") && f.endsWith(` ${dong}`));
     return hits.length === 1 ? hits[0].split(" ")[1] : null;
   };
+  const portalUrl = (code) => `https://urban.seoul.go.kr/view/html/PMNU5030110000?noticeCode=${encodeURIComponent(code)}`;
+  // 대상지 현황(서울시 PDF + 수동 추가) — 법정동|본번 키
+  const sitesPath = path.join(ROOT, "data", "moatown-sites.json");
+  const sites = fs.existsSync(sitesPath) ? JSON.parse(fs.readFileSync(sitesPath, "utf8")) : { items: [] };
+  const siteByKey = new Map();
+  for (const s of sites.items ?? []) if (s.dong && s.bon) siteByKey.set(`${dongLegal(s.dong)}|${String(s.bon).split("-")[0]}`, s);
+  // 같은 동에서 본번이 ±30 이면 같은 곳으로 본다 — 대상지 표기 지번과 고시·서울플랜+ 지번이 다를 수 있음
+  const nearKey = (map, dong, bon) => [...map.keys()].find((k) => k.startsWith(`${dong}|`) && Math.abs(+k.split("|")[1] - +String(bon).split("-")[0]) <= 30);
+
+  const used = new Set();
   const out = [];
-  let i = 0;
-  for (const [, v] of byLoc) {
+  const zones = [];
+  const consumedLoc = new Set(), consumedSite = new Set();
+
+  /* ---- ① 서울플랜+ (도형 + 추진단계) — 있으면 모아타운의 기본 출처 ---- */
+  const featBySn = new Map((plan?.features ?? []).map((f) => [f.properties.presentSn, f]));
+  const infos = [...(plan?.infos ?? [])].sort((a, b) => a.presentSn.localeCompare(b.presentSn));
+  let planN = 0, cancelled = 0;
+  for (const info of infos) {
+    const a = parseMoaAddr(info.addr) ?? parseMoaAddr(info.name);
+    const f = featBySn.get(info.presentSn);
+    const key = a ? `${a.dong}|${a.bon.split("-")[0]}` : `sn|${info.presentSn}`;
+    const locKey = a ? (byLoc.has(key) ? key : nearKey(byLoc, a.dong, a.bon)) : null;
+    const grp = locKey ? byLoc.get(locKey) : null;
+    if (locKey) consumedLoc.add(locKey);
+    const sKey = a ? (siteByKey.has(key) ? key : nearKey(siteByKey, a.dong, a.bon)) : null;
+    const site = sKey ? siteByKey.get(sKey) : null;
+    if (sKey) consumedSite.add(sKey);
+    const hist = Object.fromEntries(info.history.map((h) => [h.cd, h.date]));
+    const isCancel = info.propelCd === "PP0407";
+    const approved = grp?.notices.find((n) => n.kind === "승인" || n.kind === "변경 승인");
+    const stage = isCancel ? "대상지 취소" : approved || info.propelCd === "PP0406" ? "관리계획 승인(관리지역 지정)" : (MOA_PROPEL[info.propelCd] ?? "대상지 선정");
+    const cleanName = info.name.replace(/^\[취소구역\]\s*/, "").replace(/\s*모아타운(\s*관리계획)?$/, "").trim();
+    const gu = info.gu || grp?.gu || site?.gu || (a && guOfDong(a.dong));
+    if (!gu) continue;
+    const last = grp?.notices[grp.notices.length - 1];
+    const lastHist = info.history[info.history.length - 1];
+    const extra = [
+      ["추진단계(서울플랜+)", `${info.propelNm}${hist[info.propelCd] ? ` · ${hist[info.propelCd]}` : ""}`],
+      ...(hist.PP0402 || site?.selected ? [["대상지 선정", hist.PP0402 ?? site.selected]] : []),
+      ...(hist.PP0406 || approved ? [["관리지역 고시", hist.PP0406 ?? approved.date]] : []),
+      ...(info.region ? [["권역", info.region]] : []),
+      ...(last ? [["고시", last.title.slice(0, 60)]] : []),
+    ];
+    const note = last
+      ? { date: last.date, kw: `관리계획 ${last.kind}`, title: last.title, url: portalUrl(last.code), src: "도시계획포털" }
+      : lastHist?.date
+        ? { date: lastHist.date, kw: MOA_PROPEL[lastHist.cd] ?? info.propelNm, title: `서울플랜+ 모아타운 ${info.propelNm}`, url: SEOULPLAN_PAGE, src: "도시계획포털" }
+        : null;
+    out.push({
+      no: moaNo(key, used), sido: "서울", gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
+      name: `${cleanName} 모아타운${isCancel ? "(취소)" : ""}`, jibun: a ? `${a.dong} ${a.bon}` : "",
+      loc: `서울특별시 ${gu} ${info.addr || cleanName}${/일대|일원/.test(info.addr || cleanName) ? "" : " 일대"}`,
+      area: info.area ?? (f?.properties.area || null), extra, stage, docs: "", cafe: null, map: null, note,
+      presetZone: f ? { fid: info.presentSn, how: "seoulplan" } : undefined,
+    });
+    if (f) {
+      zones.push({
+        type: "Feature", geometry: f.geometry,
+        properties: {
+          fid: info.presentSn, id: info.presentSn, name: cleanName, code: "BZ201", gu: f.properties.gu || info.guCode || "11000",
+          area: Math.round(info.area ?? f.properties.area ?? areaM2(f.geometry)), ntfc: "", bbox: bbox(f.geometry), sido: "서울", src: "seoulplan",
+        },
+      });
+    }
+    planN++;
+    if (isCancel) cancelled++;
+  }
+
+  /* ---- ② 도시계획포털 고시에만 있는 곳 (서울플랜+ 미등재·실패 시 전부) ---- */
+  let gosiOnly = 0;
+  for (const [key, v] of byLoc) {
+    if (consumedLoc.has(key)) continue;
     v.notices.sort((a, b) => a.date.localeCompare(b.date));
     const first = v.notices.find((n) => n.kind === "승인") ?? v.notices[0];
     const last = v.notices[v.notices.length - 1];
@@ -990,37 +1060,106 @@ async function fetchMoatown() {
     if (!gu) continue;
     const stage = last.kind === "공람" && !v.notices.some((n) => n.kind !== "공람") ? "관리계획 공람" : "관리계획 승인(관리지역 지정)";
     out.push({
-      no: 11900000 + ++i, sido: "서울", gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
+      no: moaNo(key, used), sido: "서울", gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
       name: `${v.loc.label || v.loc.loc} 모아타운`, jibun: `${v.loc.dong} ${v.loc.bon}`, loc: `서울특별시 ${gu} ${v.loc.loc}`, area: null,
       extra: [["관리계획 승인", first.date], ...(last !== first ? [["최근 고시", `${last.kind} ${last.date}`]] : []), ["고시", last.title.slice(0, 60)]],
       stage, docs: "", cafe: null, map: null,
-      note: { date: last.date, kw: `관리계획 ${last.kind}`, title: last.title, url: `https://urban.seoul.go.kr/view/html/PMNU5030110000?noticeCode=${encodeURIComponent(last.code)}`, src: "도시계획포털" },
+      note: { date: last.date, kw: `관리계획 ${last.kind}`, title: last.title, url: portalUrl(last.code), src: "도시계획포털" },
     });
+    gosiOnly++;
   }
-  // 대상지 현황(아직 승인 전) — data/moatown-sites.json 이 있으면 승인된 곳을 뺀 나머지를 '대상지 선정' 으로
-  const sitesPath = path.join(ROOT, "data", "moatown-sites.json");
+
+  /* ---- ③ 대상지 현황에만 있는 곳 (서울플랜+·고시 미등재 — 동작동 102-8 처럼 최근 선정) ---- */
   let added = 0;
-  if (fs.existsSync(sitesPath)) {
-    const sites = JSON.parse(fs.readFileSync(sitesPath, "utf8"));
-    for (const s of sites.items ?? []) {
-      if (!s.dong || !s.bon) continue;
-      const loc = { dong: dongLegal(s.dong), bon: String(s.bon), loc: `${s.dongAdm ?? s.dong} ${s.bon}번지 일대` };
-      const key = `${loc.dong}|${loc.bon.split("-")[0]}`;
-      if (byLoc.has(key)) continue;
-      // 같은 동에 승인된 곳이 있고 본번이 비슷하면(±30) 같은 곳으로 본다 — 대상지 표기 지번과 고시 지번이 다를 수 있음
-      const near = [...byLoc.keys()].some((k) => k.startsWith(`${loc.dong}|`) && Math.abs(+k.split("|")[1] - +loc.bon.split("-")[0]) <= 30);
-      if (near) continue;
-      out.push({
-        no: 11900000 + ++i, sido: "서울", gu: s.gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
-        name: `${s.gu} ${loc.loc} 모아타운 대상지`, jibun: `${loc.dong} ${loc.bon}`, loc: `서울특별시 ${s.gu} ${loc.loc}`, area: s.area ?? null,
-        extra: [["대상지 선정", s.selected ?? ""], ["출처", sites.source ?? "서울시 모아타운 대상지 현황"]], stage: "대상지 선정", docs: "", cafe: null, map: null,
-        note: s.selected ? { date: s.selected, kw: "대상지 선정", src: "국토부·시 발표" } : null,
-      });
-      added++;
-    }
+  for (const [key, s] of siteByKey) {
+    if (consumedSite.has(key) || byLoc.has(key)) continue;
+    const loc = { dong: dongLegal(s.dong), bon: String(s.bon), loc: `${s.dongAdm ?? s.dong} ${s.bon}번지 일대` };
+    if (nearKey(byLoc, loc.dong, loc.bon)) continue;
+    out.push({
+      no: moaNo(key, used), sido: "서울", gu: s.gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
+      name: `${s.gu} ${loc.loc} 모아타운 대상지`, jibun: `${loc.dong} ${loc.bon}`, loc: `서울특별시 ${s.gu} ${loc.loc}`, area: s.area ?? null,
+      extra: [["대상지 선정", s.selected ?? ""], ["출처", sites.source ?? "서울시 모아타운 대상지 현황"]], stage: "대상지 선정", docs: "", cafe: null, map: null,
+      note: s.selected ? { date: s.selected, kw: "대상지 선정", src: "국토부·시 발표" } : null,
+    });
+    added++;
   }
-  console.log(`· 모아타운 ${out.length}건 (관리계획 승인 ${out.length - added} + 대상지 ${added}; 도시계획포털 고시 ${list.length}건)`);
-  return out;
+  console.log(`· 모아타운 ${out.length}건 (서울플랜+ ${planN}, 그중 취소 ${cancelled} · 고시만 ${gosiOnly} · 대상지 현황만 ${added}; 도시계획포털 고시 ${list.length}건) · 도형 ${zones.length}개`);
+  return { projects: out, zones };
+}
+
+/* ------------------------------------------------------------------ */
+/*  서울플랜+ (도시계획포털 '도시계획사업 현황') 모아타운 도형·추진단계 — 2026-09-08 사용자 "대상지도 점 아닌 폴리곤으로"        */
+/*  urban.seoul.go.kr 의 사업 현황 지도는 ArcGIS 서버(레이어 UPIS_C_UQ120, ATRB_SE='BZ201' = 모아타운)를 포털 프록시          */
+/*  /proxy/proxy.jsp?<arcgis url> 로 호출한다(키 불필요, 118개 2026-09, maxRecordCount 10000, resultRecordCount 페이지 매김 불가). */
+/*  사업 기본정보(추진단계·이력·면적·권역)는 POST bsns/getBsnsListReturnDto.json { presentSnList }.                          */
+/*  추진단계 PP0401 수립범위 자문 → PP0402 대상지선정 → PP0404 사전자문 → PP0405 위원회심의 → PP0406 관리지역고시 / PP0407 취소.  */
+/*  스냅샷은 data/seoulplan-moatown.json(깃 추적)에 두어 러너(해외 IP)에서 포털이 막혀도 이전 값을 쓴다. 같은 레이어에 신속통합   */
+/*  기획(BZ101) 등 28종 도시계획사업 도형 2,982개가 있다 — 다른 유형은 아직 안 씀.                                            */
+/* ------------------------------------------------------------------ */
+const SEOULPLAN_PATH = path.join(ROOT, "data", "seoulplan-moatown.json");
+const SEOULPLAN_QUERY = "https://urban.seoul.go.kr/proxy/proxy.jsp?http://98.33.2.225:6080/arcgis/rest/services/UPIS/20200526_WFS/MapServer/12/query";
+const SEOULPLAN_DTO = "https://urban.seoul.go.kr/bsns/getBsnsListReturnDto.json";
+export const SEOULPLAN_PAGE = "https://urban.seoul.go.kr/view/html/PMNU1100000001?bsnsCd=BZ201";
+export const MOA_PROPEL = {
+  PP0401: "관리계획 수립범위 자문", PP0402: "대상지 선정", PP0404: "관리계획 사전자문", PP0405: "관리계획 위원회 심의",
+  PP0406: "관리계획 승인(관리지역 지정)", PP0407: "대상지 취소",
+};
+const round6 = (c) => (typeof c[0] === "number" ? c.map((v) => +v.toFixed(6)) : c.map(round6));
+export async function fetchSeoulPlanMoatown() {
+  const prev = readJson(SEOULPLAN_PATH);
+  if (prev && Date.now() - new Date(prev.fetchedAt).getTime() < 1000 * 60 * 60 * 24 * 7 && !process.env.FORCE) return prev;
+  const headers = { "User-Agent": UA, Referer: SEOULPLAN_PAGE };
+  try {
+    const u = `${SEOULPLAN_QUERY}?where=${encodeURIComponent("ATRB_SE='BZ201'")}&outFields=*&returnGeometry=true&outSR=4326&f=geojson`;
+    const gj = await (await fetch(u, { headers, signal: AbortSignal.timeout(120000) })).json();
+    if (!gj?.features?.length) throw new Error(gj?.error?.message ?? "도형 0개");
+    const features = gj.features
+      .filter((f) => f.geometry && f.properties?.PRESENT_SN)
+      .map((f) => ({
+        type: "Feature", geometry: { type: f.geometry.type, coordinates: round6(f.geometry.coordinates) },
+        properties: { presentSn: f.properties.PRESENT_SN, name: (f.properties.DGM_NM ?? "").trim(), gu: f.properties.SIGNGU_SE ?? "", area: Math.round(+f.properties.DGM_AR || 0), propelCd: f.properties.PROPEL_CD ?? null },
+      }));
+    const r = await fetch(SEOULPLAN_DTO, {
+      method: "POST", headers: { ...headers, "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ presentSnList: features.map((f) => f.properties.presentSn) }), signal: AbortSignal.timeout(120000),
+    });
+    const dto = await r.json();
+    if (!Array.isArray(dto) || !dto.length) throw new Error("사업정보 응답 형식");
+    const infos = dto.map((d) => ({
+      presentSn: d.presentSn, name: (d.bsnsName ?? "").trim(), addr: (d.bsnsAddr ?? "").trim(), area: +d.bsnsArea || null, gu: d.siteName ?? "", guCode: d.siteCode ?? "",
+      propelCd: d.propelCd ?? "", propelNm: d.propelCdNm ?? "", region: d.rgnCodeNm ?? "",
+      history: (Array.isArray(d.tnBsnsPropels) ? d.tnBsnsPropels : [])
+        .map((x) => ({ cd: x.propelCd, date: String(x.propelDt ?? "").slice(0, 10) }))
+        .filter((x) => x.cd)
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    }));
+    const out = { fetchedAt: new Date().toISOString().slice(0, 10), source: SEOULPLAN_PAGE, features, infos };
+    fs.writeFileSync(SEOULPLAN_PATH, JSON.stringify(out));
+    console.log(`· 서울플랜+ 모아타운 도형 ${features.length}개 · 사업정보 ${infos.length}건`);
+    return out;
+  } catch (e) {
+    console.warn("  서울플랜+ 모아타운 실패:", e.message.slice(0, 80), prev ? `→ 스냅샷 ${prev.fetchedAt} 사용` : "→ 도형 없이 진행");
+    return prev ?? null;
+  }
+}
+/** 모아타운 위치 문구 → 법정동·본번 ("면목3,8동 453-1" → 면목동 453-1, "청룡동 1535" → 봉천동 1535) */
+export function parseMoaAddr(s) {
+  const t = (s ?? "").replace(/\[[^\]]*\]/g, "").replace(/(\d+),(\d+)동/, "$2동").replace(/\s+/g, " ").trim();
+  const m = t.match(/([가-힣]+\d*(?:동|가))\s*(\d+(?:-\d+)?)/);
+  if (!m) return null;
+  return { dongAdm: m[1], dong: dongLegal(m[1]), bon: m[2] };
+}
+/** 모아타운 기록의 고정 번호: 법정동|본번 해시 → 119xxxxx (출처·순서가 바뀌어도 같은 곳은 같은 번호) */
+function moaNo(key, used) {
+  let h = 2166136261;
+  for (const ch of key) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  let no = 11900000 + (h % 90000);
+  while (used.has(no)) no++;
+  used.add(no);
+  return no;
 }
 
 /**
@@ -1308,7 +1447,7 @@ export function builtCandidacy(zp, linked) {
     if ((zp.area ?? 0) >= 300000) return { ok: false, reason: "면적 30만㎡ 이상" };
     return { ok: true, reason: "연결 사업장 모두 후기 단계" };
   }
-  if (zp.src === "parcel" || zp.src === "special") return { ok: false, reason: "사업장 미연결 필지·특별계획 도형" };
+  if (zp.src === "parcel" || zp.src === "special" || zp.src === "seoulplan") return { ok: false, reason: "사업장 미연결 필지·특별계획·모아타운 도형" };
   const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
   if (y < 2010) return { ok: false, reason: `고시 ${y || "미상"} — 2010년 이전은 앱에서 이미 '과거 구역'` };
   return { ok: true, reason: "사업장 미연결 2010년 이후 구역" };
@@ -1430,8 +1569,11 @@ async function main() {
     z.properties.src = "seoul";
   }
   const extraZones = await fetchVworldZones();
-  const zones = [...seoulZones, ...extraZones];
-  console.log(`  구역 합계 ${zones.length}개 (서울 SHP ${seoulZones.length} + V-World ${extraZones.length})`);
+  // 모아타운: 서울플랜+ 도형(+추진단계) — 실패하면 이전 zones 의 모아타운 도형을 유지(연결은 못 하므로 앱에서 '과거'로 숨김)
+  const moa = await fetchMoatown(await fetchSeoulPlanMoatown());
+  const moaZones = moa.zones.length ? moa.zones : (prevZones?.features ?? []).filter((f) => f.properties?.src === "seoulplan");
+  const zones = [...seoulZones, ...extraZones, ...moaZones];
+  console.log(`  구역 합계 ${zones.length}개 (서울 SHP ${seoulZones.length} + V-World ${extraZones.length} + 모아타운 ${moaZones.length})`);
   // 같은 구역이 고시 차수별로 여러 도형으로 들어 있으면(신반포3차·경남 2017/2018 등) 최신 고시를 대표로 삼고 나머지는 dupOf 로 숨긴다
   const dupOf = groupDuplicateZones(zones);
   const zoneByFid = new Map(zones.map((z) => [z.properties.fid, z]));
@@ -1458,14 +1600,14 @@ async function main() {
     }
   }
   const seoulList = await collect("서울", "cleanup", async () => (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" })));
-  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon)), ...fetchNewtown(), ...(await fetchMoatown())];
+  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon)), ...fetchNewtown(), ...moa.projects];
   if (!list.length) throw new Error("사업장 자료를 하나도 얻지 못함");
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
   seedGeoCacheFromPrevious();
   const board = await fetchCleanupBoard();
 
   const projects = [];
-  let stat = { geo: 0, place: 0, emd: 0, byMap: 0, byPoint: 0, byName: 0, zoneLoc: 0, none: 0 };
+  let stat = { geo: 0, place: 0, emd: 0, byPreset: 0, byMap: 0, byPoint: 0, byName: 0, zoneLoc: 0, none: 0 };
   let i = 0;
   for (const p of list) {
     i++;
@@ -1518,8 +1660,14 @@ async function main() {
     const pn = normName(p.name);
 
     let zone = null, how = null;
+    // (0) 출처가 도형을 함께 주는 경우 (서울플랜+ 모아타운) — 기록에 미리 정해진 도형
+    if (p.presetZone && zoneByFid.has(p.presetZone.fid)) {
+      zone = zoneByFid.get(p.presetZone.fid);
+      how = p.presetZone.how;
+      stat.byPreset++;
+    }
     // (a) 정보몽땅 지도 코드 = 결정고시 관리코드 (자리표시 코드는 제외)
-    if (p.map && p.map !== PLACEHOLDER_AGZ && byId.has(p.map)) {
+    if (!zone && p.map && p.map !== PLACEHOLDER_AGZ && byId.has(p.map)) {
       zone = pickBest(byId.get(p.map), pn, loc);
       how = "map";
       stat.byMap++;
@@ -1739,7 +1887,7 @@ async function main() {
 function diffAgainstPrevious(zones, projects, prevZ) {
   const prevP = readJson(path.join(OUT, "projects.json"));
   // 필지 경계(src parcel)는 사업장에 딸린 보조 도형이라 구역 변경 비교에서 뺀다
-  const isZone = (f) => f.properties?.src !== "parcel" && f.properties?.src !== "special";
+  const isZone = (f) => f.properties?.src !== "parcel" && f.properties?.src !== "special" && f.properties?.src !== "seoulplan";
   zones = zones.filter(isZone);
   if (prevZ?.features) prevZ = { ...prevZ, features: prevZ.features.filter(isZone) };
   const logPath = path.join(OUT, "changes.json");

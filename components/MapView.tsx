@@ -77,8 +77,8 @@ function applyFocus(map: L.Map, focus: Focus, panelOpen: boolean, animate: boole
   }
 }
 
-/** 경계 자료가 없고 위치도 대략인 사업장: 모아타운 대상지(대표지번 한 점)·법정동 중심(준공 후 지번 합병) — 점선 테두리로 구분 */
-const isApprox = (pr: Project) => pr.source === "모아타운" || pr.locSrc === "emd";
+/** 경계 자료가 없고 위치도 대략인 사업장: 도형 없는 모아타운 대상지(대표지번 한 점)·법정동 중심(준공 후 지번 합병) — 점선 테두리로 구분 */
+const isApprox = (pr: Project) => (pr.source === "모아타운" && !pr.zoneFid) || pr.locSrc === "emd";
 function markerStyle(pr: Project): L.CircleMarkerOptions {
   const color = STAGE_COLOR[stageGroup(pr.stage)];
   if (isApprox(pr)) return { radius: 6, color, weight: 1.5, dashArray: "2 2", fillColor: color, fillOpacity: 0.55 };
@@ -95,6 +95,8 @@ function zoneStyle(f: ZoneFeature, dim: boolean): L.PathOptions {
   if (f.properties.src === "parcel") return { color, weight: 1.6, dashArray: "5 3", fillColor: color, fillOpacity: 0.18, opacity: 0.95 };
   // 지구단위계획 특별계획구역 경계(정비구역 미지정)는 긴 점선
   if (f.properties.src === "special") return { color, weight: 1.8, dashArray: "9 4", fillColor: color, fillOpacity: 0.16, opacity: 0.95 };
+  // 모아타운 대상지·관리지역(서울플랜+) — 점 점선. 관리계획 승인 전 대상지는 검토 범위라 경계가 바뀔 수 있다
+  if (f.properties.src === "seoulplan") return { color, weight: 1.8, dashArray: "1 4", lineCap: "round", fillColor: color, fillOpacity: 0.16, opacity: 0.95 };
   return { color, weight: 1.4, fillColor: color, fillOpacity: 0.28, opacity: 0.95 };
 }
 
