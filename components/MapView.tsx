@@ -13,6 +13,10 @@ type Props = {
   showZones: boolean;
   projects: Project[];
   showMarkers: boolean;
+  /** 완공·과거 구역 (흐리게) */
+  dimFids: Set<string> | null;
+  /** 폴리곤 툴팁 둘째 줄 (연결 사업장 구분·단계 / 고시 연도) */
+  zoneSub: Map<string, string>;
   selected: Selection | null;
   selectedZoneFid: string | null;
   base: BaseKey;
@@ -25,6 +29,9 @@ type Props = {
 
 /* 수도권 전체(서울·경기·인천)가 보이는 초기 화면 */
 const SEOUL: L.LatLngExpression = [37.52, 126.95];
+/* 이 줌 이상에서는 경계 폴리곤이 있는 사업장의 원 마커를 숨긴다 — 원과 면이 겹쳐 무엇을 눌러야 하는지 헷갈리던 문제(2026-09-08).
+   폴리곤을 누르면 연결 사업장이 하나일 때 그 사업장이 열린다(MapApp.selectZoneFromMap) */
+const LINKED_MARKER_MAX_ZOOM = 14;
 
 function applyFocus(map: L.Map, focus: Focus, panelOpen: boolean, animate: boolean) {
   const wide = window.innerWidth >= 1024;
@@ -55,8 +62,10 @@ function applyFocus(map: L.Map, focus: Focus, panelOpen: boolean, animate: boole
 function zoneStyle(f: ZoneFeature, dim: boolean): L.PathOptions {
   const cat = zoneCategory(f.properties.code);
   const color = CATEGORY_COLOR[cat];
-  if (cat === "촉진지구") return { color, weight: 2, dashArray: "6 4", fillColor: color, fillOpacity: dim ? 0.02 : 0.05, opacity: 0.9 };
-  return { color, weight: 1.4, fillColor: color, fillOpacity: dim ? 0.1 : 0.28, opacity: 0.95 };
+  if (cat === "촉진지구") return { color, weight: 2, dashArray: "6 4", fillColor: color, fillOpacity: dim ? 0.02 : 0.05, opacity: dim ? 0.5 : 0.9 };
+  // 완공·과거 구역(dim)은 옅은 회색 테두리에 연한 채움으로 진행 중 구역과 구분
+  if (dim) return { color: "#9CA3AF", weight: 1, dashArray: "3 3", fillColor: color, fillOpacity: 0.08, opacity: 0.7 };
+  return { color, weight: 1.4, fillColor: color, fillOpacity: 0.28, opacity: 0.95 };
 }
 
 export default function MapView(p: Props) {
@@ -67,8 +76,23 @@ export default function MapView(p: Props) {
   const baseRef = useRef<L.Layer[]>([]);
   const zoneLayerRef = useRef<L.GeoJSON | null>(null);
   const zoneByFid = useRef(new Map<string, L.Path>());
-  const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  /* 마커 두 묶음: 경계 폴리곤이 없는 사업장(항상) / 있는 사업장(LINKED_MARKER_MAX_ZOOM 미만에서만) */
+  const freeMarkersRef = useRef<L.LayerGroup | null>(null);
+  const linkedMarkersRef = useRef<L.LayerGroup | null>(null);
   const markerByNo = useRef(new Map<number, L.CircleMarker>());
+  const dimRef = useRef<Set<string> | null>(p.dimFids);
+  useEffect(() => {
+    dimRef.current = p.dimFids;
+  }, [p.dimFids]);
+  /* 줌에 따라 폴리곤이 있는 사업장의 마커를 넣고 뺀다 */
+  const syncLinkedMarkers = () => {
+    const map = mapRef.current;
+    const g = linkedMarkersRef.current;
+    if (!map || !g) return;
+    const hide = map.getZoom() >= LINKED_MARKER_MAX_ZOOM;
+    if (hide && map.hasLayer(g)) map.removeLayer(g);
+    if (!hide && !map.hasLayer(g)) g.addTo(map);
+  };
   const highlighted = useRef<{ zone?: string; no?: number }>({});
   const pendingFocus = useRef<Focus | null>(null);
   /* 최근 실행한 이동 — 직후에 컨테이너 크기가 바뀌면(CSS·폰트 늦게 적용, 패널 열림) 같은 이동을 다시 맞춘다 */
@@ -96,6 +120,7 @@ export default function MapView(p: Props) {
         map.setView(SEOUL, 10);
         L.control.zoom({ position: "bottomright" }).addTo(map);
         L.control.scale({ imperial: false, position: "bottomright" }).addTo(map);
+        map.on("zoomend", syncLinkedMarkers);
         mapRef.current = map;
         createdAt.current = Date.now();
         (window as unknown as { __rmMap?: L.Map }).__rmMap = map; // 디버깅용
@@ -124,7 +149,8 @@ export default function MapView(p: Props) {
       baseRef.current = [];
       zoneLayerRef.current = null;
       zb.clear();
-      markerLayerRef.current = null;
+      freeMarkersRef.current = null;
+      linkedMarkersRef.current = null;
       mb.clear();
     };
   }, []);
@@ -172,9 +198,13 @@ export default function MapView(p: Props) {
     }
     if (!p.zones || !p.showZones) return;
     const vis = p.visibleFids;
+    const dim = p.dimFids;
     const layer = L.geoJSON(p.zones as unknown as GeoJSON.FeatureCollection, {
       filter: (f) => !vis || vis.has((f as unknown as ZoneFeature).properties.fid),
-      style: (f) => zoneStyle(f as unknown as ZoneFeature, false),
+      style: (f) => {
+        const zf = f as unknown as ZoneFeature;
+        return zoneStyle(zf, !!dim?.has(zf.properties.fid));
+      },
       onEachFeature: (f, lyr) => {
         const zf = f as unknown as ZoneFeature;
         zoneByFid.current.set(zf.properties.fid, lyr as L.Path);
@@ -182,26 +212,34 @@ export default function MapView(p: Props) {
           L.DomEvent.stopPropagation(e);
           cb.current.onSelectZone(zf.properties.fid);
         });
-        lyr.bindTooltip(zf.properties.name || "(이름 없음)", { sticky: true, direction: "top", className: "rm-tip", opacity: 1 });
+        const sub = p.zoneSub.get(zf.properties.fid);
+        lyr.bindTooltip(
+          `${zf.properties.name || "(이름 없음)"}${sub ? `<br><span style="font-weight:400;color:#666">${sub}</span>` : ""}`,
+          { sticky: true, direction: "top", className: "rm-tip", opacity: 1 },
+        );
       },
     });
     layer.addTo(map);
     zoneLayerRef.current = layer;
     highlighted.current.zone = undefined;
-    markerLayerRef.current?.eachLayer((m) => (m as L.CircleMarker).bringToFront());
-  }, [p.zones, p.visibleFids, p.showZones, ready]);
+    freeMarkersRef.current?.eachLayer((m) => (m as L.CircleMarker).bringToFront());
+    linkedMarkersRef.current?.eachLayer((m) => (m as L.CircleMarker).bringToFront());
+  }, [p.zones, p.visibleFids, p.showZones, p.dimFids, p.zoneSub, ready]);
 
   /* 사업장 마커 */
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (markerLayerRef.current) {
-      map.removeLayer(markerLayerRef.current);
-      markerLayerRef.current = null;
-      markerByNo.current.clear();
+    for (const ref of [freeMarkersRef, linkedMarkersRef]) {
+      if (ref.current) {
+        if (map.hasLayer(ref.current)) map.removeLayer(ref.current);
+        ref.current = null;
+      }
     }
+    markerByNo.current.clear();
     if (!p.showMarkers) return;
-    const group = L.layerGroup();
+    const free = L.layerGroup();
+    const linked = L.layerGroup();
     for (const pr of p.projects) {
       if (pr.lat == null || pr.lng == null) continue;
       const color = STAGE_COLOR[stageGroup(pr.stage)];
@@ -217,12 +255,16 @@ export default function MapView(p: Props) {
         opacity: 1,
       });
       markerByNo.current.set(pr.no, m);
-      group.addLayer(m);
+      // 경계 폴리곤이 지도에 그려진 사업장이면 확대 시 숨기는 묶음으로
+      const hasPoly = p.showZones && !!pr.zoneFid && zoneByFid.current.has(pr.zoneFid);
+      (hasPoly ? linked : free).addLayer(m);
     }
-    group.addTo(map);
-    markerLayerRef.current = group;
+    free.addTo(map);
+    freeMarkersRef.current = free;
+    linkedMarkersRef.current = linked;
+    syncLinkedMarkers();
     highlighted.current.no = undefined;
-  }, [p.projects, p.showMarkers, ready]);
+  }, [p.projects, p.showMarkers, p.showZones, p.visibleFids, p.zones, ready]);
 
   /* 선택 강조 */
   useEffect(() => {
@@ -232,7 +274,7 @@ export default function MapView(p: Props) {
     if (prevZ) {
       const lyr = zoneByFid.current.get(prevZ);
       const f = zones?.features.find((x) => x.properties.fid === prevZ);
-      if (lyr && f) lyr.setStyle(zoneStyle(f, false));
+      if (lyr && f) lyr.setStyle(zoneStyle(f, !!dimRef.current?.has(prevZ)));
     }
     const prevNo = highlighted.current.no;
     if (prevNo != null) {

@@ -121,6 +121,62 @@ export const STAGE_DESC: Record<StageGroup, string> = {
   기타: "단계 미기재",
 };
 
+/* ---------------- 진행 국면 (아실 '재재' 식 초기·중기·후기 + 완공) ---------------- */
+/*  2026-09-08 부팀장 의견: 완공된 곳은 기본 숨김, 완공 칩을 눌러야 보이게                */
+export type Phase = "초기" | "중기" | "후기" | "완공";
+export const PHASE_ORDER: Phase[] = ["초기", "중기", "후기", "완공"];
+export const PHASE_COLOR: Record<Phase, string> = { 초기: "#F59E0B", 중기: "#E5484D", 후기: "#2F6FED", 완공: "#2AA36B" };
+export const PHASE_DESC: Record<Phase, string> = {
+  초기: "정비계획·구역지정 → 추진위원회 → 조합설립인가 (단계 미기재 포함)",
+  중기: "사업시행인가 · 심의",
+  후기: "관리처분인가 → 철거·착공·분양",
+  완공: "준공 · 이전고시 · 조합해산·청산 — 기본 숨김",
+};
+export const PHASE_STAGES: Record<Phase, StageGroup[]> = {
+  초기: ["계획", "추진위", "조합", "기타"],
+  중기: ["시행"],
+  후기: ["관리처분", "공사"],
+  완공: ["완료"],
+};
+export function phaseOf(stage: string): Phase {
+  const g = stageGroup(stage);
+  if (g === "완료") return "완공";
+  if (g === "시행") return "중기";
+  if (g === "관리처분" || g === "공사") return "후기";
+  return "초기";
+}
+export const isDoneStage = (stage: string) => stageGroup(stage) === "완료";
+
+/* ---------------- 사업 방식 태그 (사업장 이름·구분에 표기된 것만) ---------------- */
+export const TAG_LIST = ["신속통합기획", "공공재개발·재건축", "모아타운", "역세권", "도심공공복합"] as const;
+export type Tag = (typeof TAG_LIST)[number];
+const TAG_RE: Record<Tag, RegExp> = {
+  신속통합기획: /신속통합|신통기획/,
+  "공공재개발·재건축": /공공재개발|공공재건축|공공정비|공공\s*시행|공공참여/,
+  모아타운: /모아타운|모아주택/,
+  역세권: /역세권/,
+  도심공공복합: /도심\s*공공|3080/,
+};
+export function projectTags(name: string, kind: string): Tag[] {
+  const s = `${name ?? ""} ${kind ?? ""}`;
+  return TAG_LIST.filter((t) => TAG_RE[t].test(s));
+}
+
+/* ---------------- 구역 상태 ---------------- */
+/** 이 해 이전에 결정고시된 구역은 연결된 사업장이 없으면 "과거 구역"으로 보고 기본 숨김 (의제처리구역 자료는 1973년부터 들어 있다) */
+export const OLD_ZONE_YEAR = 2010;
+export function zoneYear(ntfc: string | undefined | null) {
+  const m = (ntfc ?? "").match(/NTC(\d{4})/);
+  return m ? +m[1] : null;
+}
+/** 진행 = 진행 중 사업장 연결, 완공 = 연결 사업장 모두 완료, 과거 = 연결 없고 옛 고시(또는 고시일 미상), 미상 = 연결 없는 최근 고시 */
+export type ZoneStatus = "진행" | "완공" | "과거" | "미상";
+export function zoneStatus(ntfc: string | undefined | null, linked: Project[] | undefined): ZoneStatus {
+  if (linked && linked.length) return linked.every((p) => isDoneStage(p.stage)) ? "완공" : "진행";
+  const y = zoneYear(ntfc);
+  return y == null || y < OLD_ZONE_YEAR ? "과거" : "미상";
+}
+
 /* ---------------- 자치구 ---------------- */
 export const GU: Record<string, string> = {
   "11110": "종로구", "11140": "중구", "11170": "용산구", "11200": "성동구", "11215": "광진구",
@@ -132,7 +188,7 @@ export const GU: Record<string, string> = {
 export const GU_LIST = Object.entries(GU).sort((a, b) => a[1].localeCompare(b[1], "ko"));
 
 /* ---------------- 시도·시군구 (경기·인천 포함) ---------------- */
-import type { Sido } from "./types";
+import type { Project, Sido } from "./types";
 import sggRaw from "./bjd-sgg.json";
 
 export const SIDO_LIST: Sido[] = ["서울", "경기", "인천"];

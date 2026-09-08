@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeLog, DataMeta, Project, RecentItem, Selection, Sido, ZoneCollection, ZoneFeature } from "@/lib/types";
 import UpdatesPanel from "./UpdatesPanel";
 import {
-  CATEGORY_COLOR, CATEGORY_ORDER, KIND_LIST, SIDO_LIST, STAGE_COLOR, STAGE_DESC, STAGE_ORDER, kindMatches, kindShort, normName, stageGroup, zoneCategory,
-  type StageGroup, type ZoneCategory,
+  CATEGORY_COLOR, CATEGORY_ORDER, KIND_LIST, OLD_ZONE_YEAR, PHASE_COLOR, PHASE_DESC, PHASE_ORDER, PHASE_STAGES, SIDO_LIST, STAGE_COLOR, STAGE_DESC,
+  TAG_LIST, kindMatches, kindShort, normName, phaseOf, projectTags, stageGroup, zoneCategory, zoneStatus, zoneYear,
+  type Phase, type StageGroup, type Tag, type ZoneCategory, type ZoneStatus,
 } from "@/lib/zones";
 import DetailPanel from "./DetailPanel";
 import type { BaseKey, Focus } from "./MapView";
@@ -30,7 +31,12 @@ export default function MapApp() {
   const [sido, setSido] = useState<Sido | "">("");
   const [gu, setGu] = useState("");
   const [kinds, setKinds] = useState<Set<string>>(() => new Set());
+  /* 진행 국면(초기·중기·후기·완공). 비어 있으면 완공을 뺀 전부 — 완공은 칩을 눌러야 보인다 */
+  const [phases, setPhases] = useState<Set<Phase>>(() => new Set());
+  /* 세부 단계(계획·추진위·…)를 고르면 국면 필터 대신 그것을 따른다 */
   const [stages, setStages] = useState<Set<StageGroup>>(() => new Set());
+  const [stagesOpen, setStagesOpen] = useState(false);
+  const [tags, setTags] = useState<Set<Tag>>(() => new Set());
   const [cats, setCats] = useState<Set<ZoneCategory>>(() => new Set());
   const [showZones, setShowZones] = useState(true);
   const [showMarkers, setShowMarkers] = useState(true);
@@ -161,50 +167,87 @@ export default function MapApp() {
   /* ---------- 필터 ---------- */
   const qraw = q.trim();
   const qn = normName(qraw);
-  const projectFilterActive = !!sido || !!gu || kinds.size > 0 || stages.size > 0;
+  const phaseActive = useCallback((ph: Phase) => (phases.size ? phases.has(ph) : ph !== "완공"), [phases]);
 
-  const filteredProjects = useMemo(() => {
-    return projects.filter(
-      (p) =>
-        (!sido || (p.sido ?? "서울") === sido) &&
-        (!gu || p.guCode === gu) &&
-        (!kinds.size || [...kinds].some((k) => kindMatches(k, p.kind))) &&
-        (!stages.size || stages.has(stageGroup(p.stage))) &&
-        (!qraw || p.name.includes(qraw) || p.jibun.includes(qraw) || (qn.length >= 2 && normName(p.name).includes(qn))),
-    );
-  }, [projects, sido, gu, kinds, stages, qraw, qn]);
+  /* 국면·세부단계를 뺀 나머지 조건 (지역·구분·방식·검색어) */
+  const baseMatch = useCallback(
+    (p: Project) =>
+      (!sido || (p.sido ?? "서울") === sido) &&
+      (!gu || p.guCode === gu) &&
+      (!kinds.size || [...kinds].some((k) => kindMatches(k, p.kind))) &&
+      (!tags.size || projectTags(p.name, p.kind).some((t) => tags.has(t))) &&
+      (!qraw || p.name.includes(qraw) || p.jibun.includes(qraw) || (qn.length >= 2 && normName(p.name).includes(qn))),
+    [sido, gu, kinds, tags, qraw, qn],
+  );
+  const filteredProjects = useMemo(
+    () => projects.filter((p) => baseMatch(p) && (stages.size ? stages.has(stageGroup(p.stage)) : phaseActive(phaseOf(p.stage)))),
+    [projects, baseMatch, stages, phaseActive],
+  );
+  /* 완공이라서 숨겨진 사업장 수 (안내용) */
+  const hiddenDone = useMemo(
+    () => (stages.size || phaseActive("완공") ? 0 : projects.filter((p) => phaseOf(p.stage) === "완공" && baseMatch(p)).length),
+    [projects, baseMatch, stages.size, phaseActive],
+  );
+  const filteredNoSet = useMemo(() => new Set(filteredProjects.map((p) => p.no)), [filteredProjects]);
 
   const matchedZones = useMemo(() => {
     if (!zones || !qraw) return [] as ZoneFeature[];
     return zones.features.filter((f) => f.properties.name.includes(qraw) || (qn.length >= 2 && normName(f.properties.name).includes(qn)));
   }, [zones, qraw, qn]);
 
+  /* 구역 상태: 연결 사업장이 모두 완료면 완공, 연결이 없고 OLD_ZONE_YEAR 이전(또는 고시일 미상) 지정이면 과거 */
+  const zoneStatusByFid = useMemo(() => {
+    const m = new Map<string, ZoneStatus>();
+    for (const f of zones?.features ?? []) m.set(f.properties.fid, zoneStatus(f.properties.ntfc, projectsByZoneFid.get(f.properties.fid)));
+    return m;
+  }, [zones, projectsByZoneFid]);
+
   const visibleFids = useMemo<Set<string> | null>(() => {
     if (!zones) return null;
-    if (!projectFilterActive && !qraw && !cats.size) return null;
-    let set: Set<string>;
-    const kindOrStage = kinds.size > 0 || stages.size > 0;
-    if (kindOrStage || qraw) {
-      // 사업구분·단계·검색어: 그 조건에 맞는 사업장에 연결된 구역(+검색어와 이름이 맞는 구역)만
-      set = new Set<string>();
-      for (const p of filteredProjects) if (p.zoneFid) set.add(p.zoneFid);
-      if (qraw) for (const f of matchedZones) if (!sido || (f.properties.sido ?? "서울") === sido) set.add(f.properties.fid);
-    } else {
-      // 시도·시군구만 골랐을 때는 그 지역의 구역 전부
-      set = new Set<string>();
+    const set = new Set<string>();
+    // 조건에 맞는 사업장에 연결된 구역 (+ 검색어와 이름이 맞는 구역)
+    for (const p of filteredProjects) if (p.zoneFid) set.add(p.zoneFid);
+    if (qraw) for (const f of matchedZones) if (!sido || (f.properties.sido ?? "서울") === sido) set.add(f.properties.fid);
+    // 사업장에 연결되지 않은 구역은 사업장 속성 필터(구분·방식·세부단계·검색어)가 없을 때만:
+    // 최근 지정(미상)은 초기·중기·후기 중 하나라도 보일 때, 과거 구역은 완공을 켰을 때
+    const attrFilter = kinds.size > 0 || tags.size > 0 || stages.size > 0 || !!qraw;
+    if (!attrFilter) {
+      const showRecent = PHASE_ORDER.some((ph) => ph !== "완공" && phaseActive(ph));
+      const showOld = phaseActive("완공");
       for (const f of zones.features) {
         const fp = f.properties;
+        const st = zoneStatusByFid.get(fp.fid);
+        if (st !== "미상" && st !== "과거") continue; // 연결된 구역은 위에서 사업장 필터를 따른다
+        if (st === "미상" ? !showRecent : !showOld) continue;
         if (sido && (fp.sido ?? "서울") !== sido) continue;
-        if (gu && fp.gu !== gu && !(fp.gu.endsWith("000") && filteredProjects.some((p) => p.zoneFid === fp.fid))) {
-          // 시 본청(11000 등) 코드로 잡힌 구역은 연결된 사업장이 그 시군구일 때만
-          continue;
-        }
+        if (gu && fp.gu !== gu) continue; // 시 본청(11000 등) 코드 구역은 시군구를 고르면 빠진다
         set.add(fp.fid);
       }
     }
     if (cats.size) for (const fid of [...set]) if (!cats.has(zoneCategory(zoneByFid.get(fid)!.properties.code))) set.delete(fid);
     return set;
-  }, [zones, projectFilterActive, qraw, cats, filteredProjects, sido, gu, kinds.size, stages.size, matchedZones, zoneByFid]);
+  }, [zones, filteredProjects, qraw, matchedZones, sido, gu, kinds.size, tags.size, stages.size, phaseActive, zoneStatusByFid, cats, zoneByFid]);
+
+  /* 완공·과거 구역은 흐리게 */
+  const dimFids = useMemo(() => {
+    const s = new Set<string>();
+    for (const [fid, st] of zoneStatusByFid) if (st === "완공" || st === "과거") s.add(fid);
+    return s;
+  }, [zoneStatusByFid]);
+  /* 폴리곤 툴팁 둘째 줄: 연결 사업장의 구분·단계, 없으면 결정고시 연도 */
+  const zoneSub = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of zones?.features ?? []) {
+      const fp = f.properties;
+      const linked = projectsByZoneFid.get(fp.fid) ?? [];
+      const shown = linked.filter((p) => filteredNoSet.has(p.no));
+      const pick = shown[0] ?? linked[0];
+      const y = zoneYear(fp.ntfc);
+      if (pick) m.set(fp.fid, `${kindShort(pick.kind)} · ${pick.stage || "단계 미기재"}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
+      else m.set(fp.fid, `${y ? `결정고시 ${y}` : "고시일 미상"}${zoneStatusByFid.get(fp.fid) === "과거" ? " · 과거 구역" : " · 사업장 미연결"}`);
+    }
+    return m;
+  }, [zones, projectsByZoneFid, filteredNoSet, zoneStatusByFid]);
 
   const listProjects = useMemo(() => {
     const arr = [...filteredProjects];
@@ -245,6 +288,17 @@ export default function MapApp() {
     },
     [projectByNo, zoneByFid, focusOn],
   );
+  /* 지도에서 폴리곤을 누르면: 연결된 사업장이 하나면 그 사업장(원 마커를 누른 것과 같은 화면), 여럿이거나 없으면 구역 */
+  const selectZoneFromMap = useCallback(
+    (fid: string) => {
+      const linked = projectsByZoneFid.get(fid) ?? [];
+      const shown = linked.filter((p) => filteredNoSet.has(p.no));
+      const pick = shown.length === 1 ? shown[0] : shown.length === 0 && linked.length === 1 ? linked[0] : null;
+      if (pick) selectProject(pick.no, false);
+      else selectZone(fid, false);
+    },
+    [projectsByZoneFid, filteredNoSet, selectProject, selectZone],
+  );
 
   /* 선택 → URL */
   useEffect(() => {
@@ -276,10 +330,13 @@ export default function MapApp() {
     setSido("");
     setGu("");
     setKinds(new Set());
+    setPhases(new Set());
     setStages(new Set());
+    setStagesOpen(false);
+    setTags(new Set());
     setCats(new Set());
   };
-  const filterCount = (sido ? 1 : 0) + (gu ? 1 : 0) + kinds.size + stages.size + cats.size;
+  const filterCount = (sido ? 1 : 0) + (gu ? 1 : 0) + kinds.size + phases.size + stages.size + tags.size + cats.size;
   const changeSido = (v: string) => {
     setSido(v as Sido | "");
     setGu("");
@@ -389,19 +446,53 @@ export default function MapApp() {
             <button className={`chip ${showMarkers ? "on" : ""}`} onClick={() => setShowMarkers(!showMarkers)}>사업장</button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-14 text-[11px] font-bold text-gray-400">진행단계</span>
+            {PHASE_ORDER.map((ph) => (
+              <button
+                key={ph}
+                className={`chip ${phases.has(ph) ? "on" : ""} ${ph === "완공" ? "ml-1 !border-emerald-300" : ""}`}
+                onClick={() => toggle(phases, ph, setPhases)}
+                title={PHASE_DESC[ph]}
+              >
+                <span className="dot" style={{ background: PHASE_COLOR[ph] }} />
+                {ph}
+                {ph === "완공" && hiddenDone > 0 && <span className="text-[10px] opacity-70">+{hiddenDone.toLocaleString()}</span>}
+              </button>
+            ))}
+            <button className={`chip !border-dashed ${stagesOpen || stages.size ? "on" : ""}`} onClick={() => setStagesOpen(!stagesOpen)} title="계획·추진위·조합·시행… 세부 단계로 고르기">
+              세부단계{stages.size ? ` ${stages.size}` : ""} {stagesOpen ? "▴" : "▾"}
+            </button>
+            <span className="hidden text-[11px] text-gray-400 xl:inline">
+              {stages.size ? "세부 단계를 골라 국면 대신 적용 중" : phases.size ? PHASE_DESC[[...phases][0]] : `완공(준공·청산)된 곳은 숨김 — 보려면 '완공' 칩`}
+            </span>
+          </div>
+          {stagesOpen && (
+            <div className="flex flex-wrap items-center gap-1.5 pl-14">
+              {PHASE_ORDER.map((ph) => (
+                <span key={ph} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-200 px-1.5 py-0.5">
+                  <span className="text-[10px] font-bold text-gray-400">{ph}</span>
+                  {PHASE_STAGES[ph].map((s) => (
+                    <button key={s} className={`chip ${stages.has(s) ? "on" : ""}`} onClick={() => toggle(stages, s, setStages)} title={STAGE_DESC[s]}>
+                      <span className="dot" style={{ background: STAGE_COLOR[s] }} />
+                      {s}
+                    </button>
+                  ))}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="w-14 text-[11px] font-bold text-gray-400">사업구분</span>
             {KIND_LIST.map((k) => (
               <button key={k} className={`chip ${kinds.has(k) ? "on" : ""}`} onClick={() => toggle(kinds, k, setKinds)}>
                 {kindShort(k)}
               </button>
             ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="w-14 text-[11px] font-bold text-gray-400">진행단계</span>
-            {STAGE_ORDER.map((s) => (
-              <button key={s} className={`chip ${stages.has(s) ? "on" : ""}`} onClick={() => toggle(stages, s, setStages)} title={STAGE_DESC[s]}>
-                <span className="dot" style={{ background: STAGE_COLOR[s] }} />
-                {s}
+            <span className="mx-1 h-4 w-px bg-gray-200" aria-hidden="true" />
+            <span className="text-[11px] font-bold text-gray-400" title="사업장 이름·구분에 표기된 방식만 잡힙니다">방식</span>
+            {TAG_LIST.map((t) => (
+              <button key={t} className={`chip ${tags.has(t) ? "on" : "text-brand"}`} onClick={() => toggle(tags, t, setTags)} title="사업장 이름에 이 방식이 표기된 곳">
+                {t}
               </button>
             ))}
           </div>
@@ -420,6 +511,7 @@ export default function MapApp() {
             )}
             <span className="ml-auto hidden text-[11px] text-gray-400 lg:inline">
               구역 {zoneCount.toLocaleString()} · 사업장 {filteredProjects.length.toLocaleString()}
+              {hiddenDone > 0 ? ` (완공 ${hiddenDone.toLocaleString()} 숨김)` : ""}
               {meta?.builtAt ? ` · 자료 ${meta.builtAt.slice(0, 10)}` : ""}
             </span>
           </div>
@@ -434,12 +526,14 @@ export default function MapApp() {
           showZones={showZones}
           projects={filteredProjects}
           showMarkers={showMarkers}
+          dimFids={dimFids}
+          zoneSub={zoneSub}
           selected={sel}
           selectedZoneFid={selZone?.properties.fid ?? null}
           base={base}
           focus={focus}
           panelOpen={!!sel}
-          onSelectZone={(fid) => selectZone(fid, false)}
+          onSelectZone={selectZoneFromMap}
           onSelectProject={(no) => selectProject(no, false)}
           onBaseFail={() => setBase("osm")}
         />
@@ -497,7 +591,20 @@ export default function MapApp() {
                 </ul>
               </div>
             )}
-            {listProjects.length === 0 && zones && <p className="px-3 py-6 text-center text-xs text-gray-400">조건에 맞는 사업장이 없습니다.</p>}
+            {listProjects.length === 0 && zones && (
+              <p className="px-3 py-6 text-center text-xs text-gray-400">
+                조건에 맞는 사업장이 없습니다.
+                {hiddenDone > 0 && (
+                  <>
+                    <br />
+                    완공된 사업장 {hiddenDone.toLocaleString()}건은 숨겨져 있습니다 —{" "}
+                    <button className="text-brand underline" onClick={() => setPhases(new Set(PHASE_ORDER))}>
+                      완공 포함해서 보기
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
             <ul>
               {listProjects.slice(0, listLimit).map((p) => (
                 <li key={p.no}>
@@ -577,13 +684,23 @@ function Legend() {
         ))}
       </div>
       <div className="flex flex-wrap gap-x-2.5 gap-y-1">
-        {STAGE_ORDER.map((s) => (
-          <span key={s} className="inline-flex items-center gap-1" title={STAGE_DESC[s]}>
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: STAGE_COLOR[s] }} />
-            {s}
+        {PHASE_ORDER.map((ph) => (
+          <span key={ph} className="inline-flex items-center gap-1" title={PHASE_DESC[ph]}>
+            <span className="font-bold text-gray-400">{ph}</span>
+            {PHASE_STAGES[ph]
+              .filter((s) => s !== "기타")
+              .map((s) => (
+                <span key={s} className="inline-flex items-center gap-0.5" title={STAGE_DESC[s]}>
+                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: STAGE_COLOR[s] }} />
+                  {s}
+                </span>
+              ))}
           </span>
         ))}
       </div>
+      <p className="mt-1 text-[10px] leading-snug text-gray-400">
+        원 마커 = 사업장 위치(확대하면 경계가 있는 곳은 경계만 보임) · 면 = 정비구역 경계. 완공·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김.
+      </p>
     </div>
   );
 }

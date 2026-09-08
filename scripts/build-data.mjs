@@ -96,12 +96,13 @@ function findFile(dir, ext) {
 }
 
 async function buildZones(shp) {
-  console.log("· SHP → GeoJSON 변환 (EPSG:5174 → WGS84, 10% 단순화)");
+  // 단순화는 허용오차 1 m (예전 10% 비율 단순화는 꼭짓점의 23%만 남겨 확대하면 경계가 각져 보였다 — 2026-09-08 부팀장 지적)
+  console.log("· SHP → GeoJSON 변환 (EPSG:5174 → WGS84, 1 m 허용오차 단순화)");
   const tmp = path.join(RAW, "zones_raw.geojson");
   const q = (s) => `"${s.replace(/\\/g, "/")}"`;
   await mapshaper.runCommands(
     `-i ${q(shp)} encoding=euc-kr -filter "/^UQ(11|12|51)/.test(ATRB_SE)" ` +
-      `-proj from="${SHP_PROJ}" crs=wgs84 -simplify 10% keep-shapes ` +
+      `-proj from="${SHP_PROJ}" crs=wgs84 -simplify interval=1 keep-shapes ` +
       `-o ${q(tmp)} format=geojson precision=0.000001`,
   );
   const raw = JSON.parse(fs.readFileSync(tmp, "utf8"));
