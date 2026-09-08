@@ -24,6 +24,16 @@ fs.mkdirSync(OUT, { recursive: true });
 loadEnv();
 /** 출처별 자료 기준 (meta.json 에 기록 → 화면의 "자료 기준" 표시) */
 const SOURCE_INFO = { seoulShp: "", cleanup: "", gyeonggi: "", incheon: "", portal: "" };
+/**
+ * 출처별 캐시 수명(ms). 기본은 사무실 PC에서 가끔 돌릴 때의 값. REFRESH_MODE=hourly(scripts/refresh.mjs, 작업 스케줄러 1시간 갱신)면
+ * 빠르게 바뀌고 가벼운 출처(정보몽땅 목록·고시 게시판, 지자체 포털, 서울시 착공 현황)는 매번 새로 받고, 무거운 서울플랜+는 6시간,
+ * 느리게 바뀌는 경기 시트·인천 CSV는 하루로 줄인다. FORCE=1(주간 러너)은 캐시를 전부 무시한다.
+ */
+const HOURLY = process.env.REFRESH_MODE === "hourly";
+const HOUR_MS = 3600e3;
+const TTL = HOURLY
+  ? { cleanupList: 0, cleanupBoard: 0, portal: 0, housinginfo: 0, seoulplan: 6 * HOUR_MS, gyeonggi: 24 * HOUR_MS, dataGoKr: 24 * HOUR_MS }
+  : { cleanupList: 72 * HOUR_MS, cleanupBoard: 24 * HOUR_MS, portal: 6 * 24 * HOUR_MS, housinginfo: 7 * 24 * HOUR_MS, seoulplan: 7 * 24 * HOUR_MS, gyeonggi: 7 * 24 * HOUR_MS, dataGoKr: 7 * 24 * HOUR_MS };
 const VWORLD_KEY = process.env.VWORLD_API_KEY ?? "";
 const VWORLD_DOMAIN = process.env.VWORLD_DOMAIN ?? "localhost";
 const UA = "Mozilla/5.0 (compatible; HaenglimRedevMap/1.0)";
@@ -291,7 +301,7 @@ async function fetchCleanupBoardPage(page) {
 /** 정보몽땅 고시/공고 최근 600건 (하루 캐시). 실패하면 이전 캐시, 그것도 없으면 빈 배열 */
 async function fetchCleanupBoard() {
   const cache = path.join(RAW, "cleanup-board.json");
-  const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < 1000 * 60 * 60 * 24;
+  const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < TTL.cleanupBoard;
   if (fresh && !process.env.FORCE) return JSON.parse(fs.readFileSync(cache, "utf8"));
   try {
     const p1 = await fetchCleanupBoardPage(1);
@@ -332,7 +342,7 @@ export function noteFor(p, board) {
 
 async function fetchCleanupList() {
   const cache = path.join(RAW, "cleanup-list.json");
-  const maxAge = 1000 * 60 * 60 * 24 * 3;
+  const maxAge = TTL.cleanupList;
   if (fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < maxAge && !process.env.FORCE) {
     SOURCE_INFO.cleanup = new Date(fs.statSync(cache).mtimeMs).toISOString().slice(0, 10);
     return JSON.parse(fs.readFileSync(cache, "utf8"));
@@ -764,7 +774,7 @@ function decodeText(buf) {
 /** 공공데이터포털 파일 내려받기: 상세 페이지의 직접 링크 → 없으면 다운로드 API 로 atchFileId 조회 */
 async function downloadDataGoKr(pk, cacheName) {
   const cache = path.join(RAW, cacheName);
-  const maxAge = 1000 * 60 * 60 * 24 * 7;
+  const maxAge = TTL.dataGoKr;
   if (fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < maxAge && !process.env.FORCE) {
     const m = readJson(cache + ".meta.json");
     if (m?.date && pk === "15055212") SOURCE_INFO.incheon = m.date;
@@ -1225,7 +1235,7 @@ export async function fetchGuPortals(existing, prevProjects) {
     let cache = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : { fetchedAt: "", list: [], details: {} };
     cache.details ??= {};
     let list = cache.list ?? [];
-    const fresh = cache.fetchedAt && Date.now() - Date.parse(cache.fetchedAt) < 6 * 864e5;
+    const fresh = cache.fetchedAt && Date.now() - Date.parse(cache.fetchedAt) < TTL.portal;
     console.log(`· 지자체 정비사업 포털 (${A.site})${fresh ? ` — 캐시 ${cache.fetchedAt.slice(0, 10)}` : ""}`);
     if (!fresh) {
       try {
@@ -1640,7 +1650,7 @@ async function fetchPlanInfos(sns, headers) {
 }
 export async function fetchSeoulPlan() {
   const prev = readJson(SEOULPLAN_CACHE);
-  if (prev && Date.now() - new Date(prev.fetchedAt).getTime() < 1000 * 60 * 60 * 24 * 7 && !process.env.FORCE) return prev;
+  if (prev && Date.now() - new Date(prev.fetchedAt).getTime() < TTL.seoulplan && !process.env.FORCE) return prev;
   const headers = { "User-Agent": UA, Referer: SEOULPLAN_PAGE };
   try {
     const u = `${SEOULPLAN_QUERY}?where=1%3D1&outFields=PRESENT_SN,ATRB_SE,DGM_NM,DGM_AR,SIGNGU_SE,PROPEL_CD&returnGeometry=true&outSR=4326&f=geojson`;
@@ -1867,7 +1877,7 @@ function moaNo(key, used) {
  */
 async function fetchGyeonggi() {
   const cache = path.join(RAW, "gyeonggi.json");
-  const maxAge = 1000 * 60 * 60 * 24 * 7;
+  const maxAge = TTL.gyeonggi;
   let rows;
   if (fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < maxAge && !process.env.FORCE) {
     rows = JSON.parse(fs.readFileSync(cache, "utf8"));
@@ -2871,7 +2881,7 @@ function markStaleRecords(projects, dupOf) {
 const HOUSINGINFO_URL = "https://housinginfo.seoul.go.kr/hmpg/mabu/prst/cons/consDetail.do";
 export async function fetchHousingInfo() {
   const cache = path.join(RAW, "housinginfo.json");
-  const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < 1000 * 60 * 60 * 24 * 7;
+  const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < TTL.housinginfo;
   if (fresh && !process.env.FORCE) return JSON.parse(fs.readFileSync(cache, "utf8"));
   try {
     const html = await (await fetch(HOUSINGINFO_URL, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30000) })).text();
