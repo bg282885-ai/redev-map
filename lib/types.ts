@@ -23,6 +23,10 @@ export type ZoneProps = {
   /** parcel 일 때 필지 PNU·주소 */
   pnu?: string | null;
   jibun?: string;
+  /** 사업장 미연결 구역의 완공 판별(V-World 건물통합정보: 구역 안 신축 고층 건물). true 면 앱에서 완공으로 취급 */
+  built?: boolean;
+  /** 판별에 쓴 신축 고층 건물 동수 */
+  builtN?: number;
 };
 
 export type Sido = "서울" | "경기" | "인천";

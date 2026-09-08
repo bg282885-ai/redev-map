@@ -198,7 +198,7 @@ export default function MapApp() {
   /* 구역 상태: 연결 사업장이 모두 완료면 완공, 연결이 없고 OLD_ZONE_YEAR 이전(또는 고시일 미상) 지정이면 과거 */
   const zoneStatusByFid = useMemo(() => {
     const m = new Map<string, ZoneStatus>();
-    for (const f of zones?.features ?? []) m.set(f.properties.fid, zoneStatus(f.properties.ntfc, projectsByZoneFid.get(f.properties.fid)));
+    for (const f of zones?.features ?? []) m.set(f.properties.fid, zoneStatus(f.properties, projectsByZoneFid.get(f.properties.fid)));
     return m;
   }, [zones, projectsByZoneFid]);
 
@@ -225,8 +225,11 @@ export default function MapApp() {
       }
     }
     if (cats.size) for (const fid of [...set]) if (!cats.has(zoneCategory(zoneByFid.get(fid)!.properties.code))) set.delete(fid);
+    // 선택된 구역(공유 링크 ?z= / ?p= 포함)은 완공·과거라 숨겨져 있어도 그린다
+    const selFid = sel?.type === "zone" ? sel.fid : sel?.type === "project" ? projectByNo.get(sel.no)?.zoneFid : null;
+    if (selFid && zoneByFid.has(selFid)) set.add(selFid);
     return set;
-  }, [zones, filteredProjects, qraw, matchedZones, sido, gu, kinds.size, tags.size, stages.size, phaseActive, zoneStatusByFid, cats, zoneByFid]);
+  }, [zones, filteredProjects, qraw, matchedZones, sido, gu, kinds.size, tags.size, stages.size, phaseActive, zoneStatusByFid, cats, zoneByFid, sel, projectByNo]);
 
   /* 완공·과거 구역은 흐리게 */
   const dimFids = useMemo(() => {
@@ -244,6 +247,7 @@ export default function MapApp() {
       const pick = shown[0] ?? linked[0];
       const y = zoneYear(fp.ntfc);
       if (pick) m.set(fp.fid, `${kindShort(pick.kind)} · ${pick.stage || "단계 미기재"}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
+      else if (fp.built) m.set(fp.fid, `${y ? `결정고시 ${y} · ` : ""}준공 추정 (신축 고층 ${fp.builtN ?? ""}동)`);
       else m.set(fp.fid, `${y ? `결정고시 ${y}` : "고시일 미상"}${zoneStatusByFid.get(fp.fid) === "과거" ? " · 과거 구역" : " · 사업장 미연결"}`);
     }
     return m;

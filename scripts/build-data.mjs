@@ -851,6 +851,103 @@ async function fetchParcel(p, cache) {
   return undefined;
 }
 
+/**
+ * 완공 판별 — 사업장이 연결되지 않은 최근(OLD_ZONE_YEAR 이후) 정비구역이 이미 다 지어졸 곳인지 V-World GIS건물통합정보
+ * (LT_C_BLDGINFO)로 본다. 신축 아파트는 건축물대장 결합 전이라 사용승인일이 비어 있고 층수만 있으므로,
+ * "구역 안에 승인일 없는 10층 이상 건물" 또는 "지정 이후 승인된 10층 이상 건물" 이 3동 이상(작은 구역은 1동)이면 준공으로 본다.
+ * 2026-09-08 확인: 아현1-3·아현2·아현4·흑석3(준공) 6~21동, 한남3(진행) 0동. 촉진지구·도시개발구역 울타리는 제외.
+ */
+const builtCachePath = path.join(RAW, "built.json");
+let builtDown = false;
+
+function centroidOf(g) {
+  const r = g.type === "Polygon" ? g.coordinates[0] : g.coordinates[0][0];
+  let x = 0, y = 0;
+  for (const c of r) { x += c[0]; y += c[1]; }
+  return [x / r.length, y / r.length];
+}
+
+async function fetchBuiltSignal(z, cache) {
+  const zp = z.properties;
+  const ck = `${zp.fid}|${zp.ntfc}`;
+  if (ck in cache) return cache[ck];
+  if (!VWORLD_KEY || builtDown) return undefined;
+  const y0 = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
+  const box = `BOX(${zp.bbox.join(",")})`;
+  let nullTall = 0, newTall = 0, n = 0;
+  try {
+    for (let page = 1; page <= 5; page++) {
+      const u = new URL("https://api.vworld.kr/req/data");
+      u.search = new URLSearchParams({
+        service: "data", request: "GetFeature", data: "LT_C_BLDGINFO", key: VWORLD_KEY, domain: VWORLD_DOMAIN, format: "json",
+        crs: "EPSG:4326", size: "1000", page: String(page), geomFilter: box,
+      }).toString();
+      const j = await (await fetch(u, { headers: { Referer: `https://${VWORLD_DOMAIN}/`, "User-Agent": UA }, signal: AbortSignal.timeout(30000) })).json();
+      const st = j.response?.status;
+      if (st === "NOT_FOUND") break;
+      if (st !== "OK") throw new Error(j.response?.error?.text ?? st ?? "V-World 오류");
+      const feats = j.response.result?.featureCollection?.features ?? [];
+      for (const f of feats) {
+        if (!f.geometry || !pointInGeom(centroidOf(f.geometry), z.geometry)) continue;
+        n++;
+        const fl = +(f.properties?.grnd_flr ?? 0);
+        const ap = String(f.properties?.useapr_day ?? "");
+        const y = +ap.slice(0, 4) || 0;
+        if (fl >= 10 && !y) nullTall++;
+        else if (fl >= 10 && y0 && y >= y0 + 1) newTall++;
+      }
+      const total = +(j.response.record?.total ?? 0);
+      if (feats.length < 1000 || page * 1000 >= total) break;
+      await sleep(80);
+    }
+    const v = { tall: nullTall + newTall, n };
+    cache[ck] = v;
+    vworldFails = 0;
+    await sleep(80);
+    return v;
+  } catch (e) {
+    console.warn("  건물 조회 오류", zp.name, e.message.slice(0, 60));
+    if (++vworldFails >= 3) builtDown = true;
+    return undefined;
+  }
+}
+
+async function markBuiltZones(zones, projects, prevZones) {
+  const linked = new Set(projects.filter((p) => p.zoneFid).map((p) => p.zoneFid));
+  const cands = zones.filter((z) => {
+    const zp = z.properties;
+    if (zp.src === "parcel" || linked.has(zp.fid) || UMBRELLA_CODE.test(zp.code)) return false;
+    const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
+    return y >= 2010; // 그 이전 고시는 앱에서 이미 '과거 구역'
+  });
+  console.log(`· 사업장 미연결 최근 구역 ${cands.length}개 → 신축 건물로 완공 여부 판별 (V-World 건물통합정보)`);
+  const cache = fs.existsSync(builtCachePath) ? JSON.parse(fs.readFileSync(builtCachePath, "utf8")) : {};
+  const prevBuilt = new Map((prevZones?.features ?? []).filter((f) => f.properties?.built != null).map((f) => [f.properties.fid, f.properties]));
+  let built = 0, kept = 0, i = 0;
+  for (const z of cands) {
+    if (++i % 100 === 0) {
+      process.stdout.write(`  ${i}/${cands.length}\n`);
+      fs.writeFileSync(builtCachePath, JSON.stringify(cache));
+    }
+    const r = await fetchBuiltSignal(z, cache);
+    if (r) {
+      // 판정은 캐시된 동수로 매번 계산 (규칙을 바꿔도 캐시 재사용). 고시 연도는 최신 변경·해제 고시라 "최근 지정" 제외에 못 쓴다.
+      // 검증(2026-09-08, 정보몽땅 단계가 확실한 구역): 완료 45곳 중 36곳 적중, 진행 45곳 중 오탐 1곳, 공사 중 25곳 중 3곳
+      const tall = r.tall ?? 0;
+      z.properties.built = tall >= 3 || (tall >= 1 && (z.properties.area ?? 0) < 10000);
+      z.properties.builtN = tall;
+      if (z.properties.built) built++;
+    } else if (prevBuilt.has(z.properties.fid)) {
+      z.properties.built = prevBuilt.get(z.properties.fid).built;
+      z.properties.builtN = prevBuilt.get(z.properties.fid).builtN;
+      if (z.properties.built) built++;
+      kept++;
+    }
+  }
+  fs.writeFileSync(builtCachePath, JSON.stringify(cache));
+  console.log(`  완공으로 판별 ${built}개${kept ? ` (이전 자료 유지 ${kept})` : ""}`);
+}
+
 async function addParcelZones(projects, zones, prevZones) {
   const cands = projects.filter((p) => !p.zoneFid && p.lat != null && p.lng != null && PARCEL_KIND.test(p.kind) && !/소규모재개발/.test(p.kind));
   console.log(`· 정비구역 폴리곤 없는 재건축·리모델링 단지 ${cands.length}건 → 대표지번 필지 경계 (V-World 지적도)`);
@@ -970,19 +1067,30 @@ async function main() {
     const pn = normName(p.name);
 
     let zone = null, how = null;
-    // (a) 정보몽땅 지도 코드 = 결정고시 관리코드
-    if (p.map && byId.has(p.map)) {
+    // (a) 정보몽땅 지도 코드 = 결정고시 관리코드 (자리표시 코드는 제외)
+    if (p.map && p.map !== PLACEHOLDER_AGZ && byId.has(p.map)) {
       zone = pickBest(byId.get(p.map), pn, loc);
       how = "map";
       stat.byMap++;
     }
-    // (b) 대표지번 좌표가 들어있는 구역 (이름 유사도로 우선순위) — 같은 시도 안에서만
-    if (!zone && loc) {
+    // (b) 대표지번 좌표가 들어있는 구역 (이름 유사도로 우선순위) — 같은 시도 안에서만.
+    //     유형이 어울려야 하고, 촉진지구·존치·도시개발·주거환경관리 같은 울타리 폴리곤은 이름까지 맞을 때만,
+    //     이름의 숫자가 서로 다르면(영등포1-5 vs 1-12) 제외
+    if (!zone && loc && kindClass(p.kind) !== "none") {
       const pt = [loc.lng, loc.lat];
       const hits = zones.filter((z) => {
-        if ((z.properties.sido ?? "서울") !== (p.sido ?? "서울")) return false;
-        const b = z.properties.bbox;
-        return pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && pointInGeom(pt, z.geometry);
+        const zp = z.properties;
+        if ((zp.sido ?? "서울") !== (p.sido ?? "서울")) return false;
+        const b = zp.bbox;
+        if (!(pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && pointInGeom(pt, z.geometry))) return false;
+        if (!compatible(p.kind, zp.code)) return false;
+        const zn = normName(zp.name);
+        if (digitsConflict(pn, zn)) return false;
+        // 울타리 폴리곤(촉진지구 전체 43~119ha 등)은 이름이 거의 같을 때만, 존치·관리형은 이름이 비슷할 때만
+        const s = nameScore(pn, zn);
+        if (/^UQ51[012]/.test(zp.code) && s < 0.8) return false;
+        if ((UMBRELLA_CODE.test(zp.code) || zp.code === MANAGED_CODE) && s < 0.5) return false;
+        return true;
       });
       if (hits.length) {
         zone = pickBest(hits, pn, loc);
@@ -990,12 +1098,12 @@ async function main() {
         stat.byPoint++;
       }
     }
-    // (c) 이름 매칭 (좌표가 있으면 3km 이내, 없으면 서울 전체에서 유일할 때만)
-    if (!zone && pn.length >= 3) {
+    // (c) 이름 매칭 — 유형이 어울리는 구역만. 좌표가 있으면 1km 이내(이름이 거의 같으면 3km), 없으면 시도 안에서 유일할 때만
+    if (!zone && pn.length >= 3 && kindClass(p.kind) !== "none") {
       const cands = zoneNorm
-        .filter((x) => (x.z.properties.sido ?? "서울") === (p.sido ?? "서울"))
+        .filter((x) => (x.z.properties.sido ?? "서울") === (p.sido ?? "서울") && compatible(p.kind, x.z.properties.code))
         .map((x) => ({ ...x, s: nameScore(pn, x.n) }))
-        .filter((x) => x.s >= 0.5 && (!loc || distKm(loc, x.c) <= 3));
+        .filter((x) => x.s >= (/^UQ51[012]/.test(x.z.properties.code) ? 0.8 : 0.5) && (!loc || distKm(loc, x.c) <= (x.s >= 0.8 ? 3 : 1)));
       cands.sort((a, b) => b.s - a.s);
       if (cands.length && (cands.length === 1 || cands[0].s - cands[1].s > 0.15 || cands[0].z.properties.id === cands[1].z.properties.id)) {
         zone = cands[0].z;
@@ -1044,6 +1152,8 @@ async function main() {
   }
   fs.writeFileSync(geoCachePath, JSON.stringify(geoCache));
 
+  /* ---- 사업장 미연결 구역: 신축 건물로 완공 판별 ---- */
+  await markBuiltZones(zones, projects, prevZones);
   /* ---- 정비구역 폴리곤이 없는 재건축 단지는 대표지번 필지 경계로 ---- */
   await addParcelZones(projects, zones, prevZones);
   fs.writeFileSync(path.join(OUT, "zones.geojson"), JSON.stringify({ type: "FeatureCollection", features: zones }));
@@ -1196,6 +1306,47 @@ function readJson(p) {
   } catch {
     return null;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  사업장 ↔ 구역 연결 검증 규칙 (2026-09-08 압구정 조사 후 전수 점검으로 추가)                */
+/*  - 유형 호환: 재건축 사업장은 재건축 구역에만, 재개발은 재개발 구역에만 … (연희1·창전1·신반포1차 등이   */
+/*    이름 비슷한 재개발 구역에 묶이던 문제). 지역주택조합·리모델링은 정비구역이 아니므로 좌표·이름으로 안 묶음 */
+/*  - 울타리 구역: 재정비촉진지구·존치구역·도시개발구역·주거환경관리 같은 큰 폴리곤은 좌표만으로 안 묶음     */
+/*    (전농8구역이 81ha 촉진지구 전체에 묶이던 문제)                                          */
+/*  - 숫자 충돌: 이름의 숫자열이 다르면 다른 구역 (영등포1-5~1-18 이 1-12 구역에 몰리던 문제)          */
+/* ------------------------------------------------------------------ */
+const UMBRELLA_CODE = /^UQ(51|11)/; // 촉진지구·존치·도시개발
+const MANAGED_CODE = "UQ1212"; // 주거환경관리사업(관리형)
+/** 자리표시 관리코드 — 옛 구역 128개가 공유하므로 지도코드 연결에 쓰지 않는다 */
+const PLACEHOLDER_AGZ = "11000AGZ000000001811";
+
+function kindClass(kind) {
+  const k = (kind ?? "").replace(/\([^)]*\)/g, "");
+  if (/지역주택|리모델링/.test(k)) return "none";
+  if (/소규모재건축/.test(k)) return "small";
+  if (/소규모재개발|가로주택|자율주택/.test(k)) return "small";
+  if (/주거환경/.test(k)) return "env";
+  if (/재건축/.test(k)) return "rebuild";
+  if (/재개발|도시환경|재정비촉진|정비구역지정|후보지/.test(k)) return "redev";
+  return "any";
+}
+/** 사업장 구분과 구역 분류코드가 어울리는가 */
+function compatible(kind, code) {
+  const c = kindClass(kind);
+  if (c === "none") return false;
+  if (c === "any") return true;
+  if (/^UQ12(00|90|50)/.test(code)) return true; // 일반 '정비구역' 코드는 무엇이든
+  if (c === "rebuild") return code === "UQ1240" || code === "UQ1206";
+  if (c === "redev") return /^UQ12(2|3)/.test(code) || UMBRELLA_CODE.test(code);
+  if (c === "env") return /^UQ121/.test(code);
+  if (c === "small") return /^UQ12(6|7|8)/.test(code);
+  return true;
+}
+/** 두 이름 모두 숫자가 있는데 숫자열이 다르면 다른 구역으로 본다 */
+function digitsConflict(a, b) {
+  const da = (a.match(/\d+/g) ?? []).join(","), db = (b.match(/\d+/g) ?? []).join(",");
+  return !!da && !!db && da !== db;
 }
 
 function pickBest(cands, pn, loc) {

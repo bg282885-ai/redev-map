@@ -264,6 +264,14 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
             {zp.src === "vworld" && (
               <p className="mt-1 text-[11px] text-gray-400">V-World 지구단위계획구역(UPIS) 레이어에서 정비구역 이름으로 찾은 경계입니다. 정비구역 지정 시 함께 결정된 지구단위계획구역 경계라 정비구역과 다를 수 있습니다.</p>
             )}
+            {zp.built && zoneProjects.length === 0 && (
+              <p className="mt-1 text-[11px] text-emerald-700">
+                구역 안에 신축 고층 건물 {zp.builtN ?? 0}동이 있어(GIS건물통합정보) 준공된 것으로 보고 &apos;완공&apos;으로 분류했습니다. 연결된 사업장 정보는 없습니다.
+              </p>
+            )}
+            {zp.built === false && zoneProjects.length === 0 && (
+              <p className="mt-1 text-[11px] text-gray-400">정보몽땅·경기·인천 사업장 목록에 연결된 사업장이 없고, 구역 안에 신축 고층 건물도 확인되지 않아 진행 중(또는 정체)으로 봅니다.</p>
+            )}
             {zoneProjects.length > 1 && sel.type === "project" && (
               <p className="mt-1 text-[11px] text-gray-500">이 구역에 사업장 {zoneProjects.length}건이 연결되어 있습니다.</p>
             )}

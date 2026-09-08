@@ -169,11 +169,15 @@ export function zoneYear(ntfc: string | undefined | null) {
   const m = (ntfc ?? "").match(/NTC(\d{4})/);
   return m ? +m[1] : null;
 }
-/** 진행 = 진행 중 사업장 연결, 완공 = 연결 사업장 모두 완료, 과거 = 연결 없고 옛 고시(또는 고시일 미상), 미상 = 연결 없는 최근 고시 */
+/**
+ * 진행 = 진행 중 사업장 연결, 완공 = 연결 사업장 모두 완료 또는 (미연결인데) 구역 안 신축 고층 건물로 준공 판별(built),
+ * 과거 = 연결 없고 옛 고시(또는 고시일 미상), 미상 = 연결 없는 최근 고시
+ */
 export type ZoneStatus = "진행" | "완공" | "과거" | "미상";
-export function zoneStatus(ntfc: string | undefined | null, linked: Project[] | undefined): ZoneStatus {
+export function zoneStatus(zp: Pick<ZoneProps, "ntfc" | "built">, linked: Project[] | undefined): ZoneStatus {
   if (linked && linked.length) return linked.every((p) => isDoneStage(p.stage)) ? "완공" : "진행";
-  const y = zoneYear(ntfc);
+  if (zp.built) return "완공";
+  const y = zoneYear(zp.ntfc);
   return y == null || y < OLD_ZONE_YEAR ? "과거" : "미상";
 }
 
@@ -188,7 +192,7 @@ export const GU: Record<string, string> = {
 export const GU_LIST = Object.entries(GU).sort((a, b) => a[1].localeCompare(b[1], "ko"));
 
 /* ---------------- 시도·시군구 (경기·인천 포함) ---------------- */
-import type { Project, Sido } from "./types";
+import type { Project, Sido, ZoneProps } from "./types";
 import sggRaw from "./bjd-sgg.json";
 
 export const SIDO_LIST: Sido[] = ["서울", "경기", "인천"];
