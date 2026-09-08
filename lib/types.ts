@@ -52,8 +52,10 @@ export type Project = {
   gu: string;
   /** 시군구 코드 5자리 */
   guCode: string | null;
-  /** 자료 출처: 정보몽땅 / 경기도 / 인천시 / 1기신도시(data/newtown1.json — 국토부 선도지구·시 지정 고시 정리) / 모아타운 / 서울플랜+(도시계획포털 도시계획사업 현황, 정보몽땅에 없는 사업) */
-  source?: "정보몽땅" | "경기도" | "인천시" | "1기신도시" | "모아타운" | "서울플랜+";
+  /** 자료 출처: 정보몽땅 / 경기도 / 인천시 / 1기신도시(data/newtown1.json — 국토부 선도지구·시 지정 고시 정리) / 모아타운 / 서울플랜+(도시계획포털 도시계획사업 현황, 정보몽땅에 없는 사업) / 지자체포털(자치구 정비사업 포털 — 안전진단·기본계획 등 정보몽땅·서울플랜+ 이전 단계) */
+  source?: "정보몽땅" | "경기도" | "인천시" | "1기신도시" | "모아타운" | "서울플랜+" | "지자체포털";
+  /** 지자체포털 기록의 출처 포털 (서초구 공동주택 & 재건축 정보포털 등) */
+  portal?: { gu: string; site: string; url: string; id?: string };
   /** 서울플랜+(서울시 도시계획사업 현황)의 같은 사업 추진단계 — 정보몽땅 기록에도 붙는다. ended = 취소·해제·중단(앱은 완공처럼 숨김) */
   plan?: { sn: string; code?: string; type: string; stage: string; date?: string; history?: { stage: string; date: string }[]; ended?: boolean };
   /** 1기 신도시 선도지구의 구성 단지 (장소 검색어·단지명) */
@@ -99,7 +101,7 @@ export type Project = {
   /** seoulplan = 서울플랜+ 모아타운 도형(출처가 도형을 함께 줌) */
   zoneHow: "map" | "point" | "name" | "parcel" | "special" | "seoulplan" | null;
   /** 최근 동향 한 줄 (빌드 시 정보몽땅 고시·공고 제목 / 경기 자료의 최신 인가일에서 뽑음) — 지도 라벨·패널 표시용 */
-  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" | "국토부·시 발표" | "도시계획포털" | "서울플랜+" } | null;
+  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" | "국토부·시 발표" | "도시계획포털" | "서울플랜+" | "지자체포털" } | null;
 };
 
 export type DataMeta = {
@@ -108,7 +110,7 @@ export type DataMeta = {
   projects: number;
   shp: string;
   /** 출처별 자료 기준 (파일명·수집일) */
-  sources?: { seoulShp?: string; cleanup?: string; gyeonggi?: string; incheon?: string; vworld?: string; housinginfo?: string; bldrgst?: string; seoulplan?: string };
+  sources?: { seoulShp?: string; cleanup?: string; gyeonggi?: string; incheon?: string; vworld?: string; housinginfo?: string; bldrgst?: string; seoulplan?: string; portal?: string };
   /** 이번 빌드에서 기록된 변경 건수 */
   changes?: number;
 };

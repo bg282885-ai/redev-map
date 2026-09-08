@@ -23,7 +23,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 loadEnv();
 /** 출처별 자료 기준 (meta.json 에 기록 → 화면의 "자료 기준" 표시) */
-const SOURCE_INFO = { seoulShp: "", cleanup: "", gyeonggi: "", incheon: "" };
+const SOURCE_INFO = { seoulShp: "", cleanup: "", gyeonggi: "", incheon: "", portal: "" };
 const VWORLD_KEY = process.env.VWORLD_API_KEY ?? "";
 const VWORLD_DOMAIN = process.env.VWORLD_DOMAIN ?? "localhost";
 const UA = "Mozilla/5.0 (compatible; HaenglimRedevMap/1.0)";
@@ -917,6 +917,369 @@ function fetchNewtown() {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+/*  구청 정비사업 포털 — 정보몽땅·서울플랜+ 에 없는 초기 단계(안전진단·기본계획) 사업장 보충      */
+/* ------------------------------------------------------------------ */
+/**
+ * 왜 필요한가(2026-09-08, "잠원한신 안전진단 폴리곤이 없다"): 재건축 안전진단은 추진위·조합이 생기기 전 단계라
+ *  ① 정보몽땅은 추진주체가 등록한 사업장만 있고(안전진단 기록 42건은 준비위가 자발 등록한 것),
+ *  ② 서울플랜+ 도시계획사업 현황의 재건축 추진단계는 PP0201 입안제안부터라 안전진단 코드가 없고,
+ *  ③ 의제처리구역 SHP 는 정비구역 지정 이후라서, 안전진단 통과 단지는 어느 출처에도 없다.
+ *  서울시 단위 안전진단 현황 공개자료도 없어(열린데이터광장·공공데이터포털 검색 결과 없음) 자치구 포털을 어댑터로 읽는다.
+ *  - 서초구 「공동주택 & 재건축 정보포털」 housing.seocho.go.kr 사업현황 목록(POST pageIndex): 사업구분(재건축·리모델링·가로주택·소규모·시장)·
+ *    권역·사업명(data-board_seq=rebuild_id)·사업위치·진행상태(기본계획수립·안전진단·정비구역지정·…·구역해제).
+ *    상세(POST rebuild_id) 에 사업주체·구역면적·기존/계획 동·세대·층수·용적률·추진현황(날짜 목록).
+ *  - 강남구는 게시판 첨부(현황판 파일)만이라 미지원. 다른 구 포털이 확인되면 어댑터를 추가한다.
+ *  규칙: 준공·이전고시·해제 등 끝난 기록은 넣지 않고, 같은 구의 정보몽땅 사업장과 이름이 같으면(정규화 이름 일치 또는 유사도 ≥0.7, 숫자 일치, 유형 호환) 건너뛴다.
+ *  좌표가 나온 뒤에는 dedupeGuPortal 이 100 m 안의 같은 유형 기록·서울플랜+ 도형 안에 든 것을 다시 걸러낸다(서울플랜+ 기록 번호를 안정되게 유지).
+ *  경계는 addParcelZones 의 대표지번 필지(재건축·리모델링). 캐시 data/raw/portal-seocho.json(목록 6일, 상세는 rebuild_id 별 영구),
+ *  목록을 못 받으면 캐시 → 이전 projects.json 의 지자체포털 기록 유지(해외 러너 대비).
+ */
+export const PORTAL_SOURCE = "지자체포털";
+const PORTAL_DONE = /준공|이전고시|해제|해산|청산|취소|중단/;
+const PORTAL_HEADERS = { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", "Accept-Language": "ko" };
+const MOA_KIND = "모아타운(소규모주택정비 관리지역)";
+const portalCachePath = (id) => path.join(RAW, `portal-${id}.json`);
+
+/** 지자체포털 기록의 고정 번호: `어댑터|행 키` 해시 → 13xxxxxx */
+function portalNo(key, used) {
+  let h = 2166136261;
+  for (const ch of key) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  let no = 13000000 + (h % 900000);
+  while (used.has(no)) no++;
+  used.add(no);
+  return no;
+}
+const stripTags = (s) =>
+  String(s ?? "").replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&middot;|&#8231;|‧|ㆍ/g, "·").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+const numOf = (s) => {
+  const m = String(s ?? "").replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return m ? +m[0] : null;
+};
+const unitsOf = (s) => String(s ?? "").match(/(\d[\d,]*)\s*세대/)?.[1]?.replace(/,/g, "");
+/** "2025. 5. 28." / "2011.10.31" / "2025.05.30. (부분준공)" → 2025-05-28 */
+const dateOf = (s) => {
+  const m = String(s ?? "").match(/(\d{4})\s*[.년]\s*(\d{1,2})\s*[.월]?\s*(\d{1,2})?/);
+  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${(m[3] ?? "1").padStart(2, "0")}` : "";
+};
+/** 상세의 추진현황("○ 2025.07.25. 재건축 안전진단 ○ 2025.12.19. 신속통합기획 사전자문 신청") → 날짜순 [{date, text}] */
+export function portalHistory(text) {
+  const out = [];
+  for (const piece of String(text ?? "").split(/[○●▶■◦•]|\n/)) {
+    const m = piece.trim().match(/^(\d{4})\s*[.년]\s*(\d{1,2})\s*[.월]?\s*(\d{1,2})?\s*[.일]?\s*(.*)$/);
+    if (!m) continue;
+    const date = `${m[1]}-${m[2].padStart(2, "0")}-${(m[3] ?? "1").padStart(2, "0")}`;
+    const t = m[4].replace(/^[.\s:~\-–]+/, "").trim();
+    if (t) out.push({ date, text: t });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+/** 라벨용 짧은 동향 키워드 */
+function portalKw(text) {
+  return text.replace(/^재건축\s*/, "").replace(/신속통합기획/g, "신통").replace(/정비사업/g, "").replace(/\s+/g, " ").trim().slice(0, 18);
+}
+
+/* ── 어댑터 1: 서초구 「공동주택 & 재건축 정보포털」 (목록 POST currRow=페이지, 상세 POST rebuild_id) ── */
+const SEOCHO_PORTAL = {
+  site: "서초구 공동주택 & 재건축 정보포털",
+  url: "https://housing.seocho.go.kr/cpage/businessStatus/businessStatusList.do",
+  detail: "https://housing.seocho.go.kr/cpage/businessStatus/businessStatusDetail.do",
+  kind: { "재건축 정비사업": "재건축", 리모델링사업: "리모델링", 가로주택정비사업: "가로주택정비", "소규모 재건축 사업": "소규모재건축", "시장 재건축 사업": "시장정비" },
+};
+async function fetchSeochoPortalList() {
+  const rows = [];
+  const seen = new Set();
+  // 페이지 매김은 currRow 만 듣고(pageIndex 는 무시) 이름과 달리 페이지 번호다(currRow=11 → 11페이지 = 번호 20~11). 10건씩, 빈 페이지에서 멈춘다
+  for (let page = 1; page <= 40; page++) {
+    const body = new URLSearchParams({ scType1: "", scType2: "", scType3: "", srch_input: "", currRow: String(page) }).toString();
+    const html = await (await fetch(SEOCHO_PORTAL.url, { method: "POST", headers: PORTAL_HEADERS, body })).text();
+    let added = 0;
+    for (const m of html.matchAll(/<tr[^>]*>\s*<td[^>]*>\s*\d+\s*<\/td>([\s\S]*?)<\/tr>/g)) {
+      const id = m[1].match(/data-board_seq="(\d+)"/)?.[1];
+      if (!id || seen.has(id)) continue;
+      const tds = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((x) => stripTags(x[1])); // [사업구분, 권역, 사업명, 사업위치, 진행상태]
+      if (tds.length < 5) continue;
+      seen.add(id);
+      rows.push({ id, kindRaw: tds[0], region: tds[1], name: tds[2], jibun: tds[3], stage: tds[4] });
+      added++;
+    }
+    if (!added) break;
+    await sleep(300);
+  }
+  return rows;
+}
+async function fetchSeochoPortalDetail(id) {
+  const body = new URLSearchParams({ rebuild_id: id, rownum: "1" }).toString();
+  const html = await (await fetch(SEOCHO_PORTAL.detail, { method: "POST", headers: PORTAL_HEADERS, body })).text();
+  const kv = {};
+  for (const m of html.matchAll(/<th[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/g)) {
+    const k = stripTags(m[1]);
+    const v = stripTags(m[2]);
+    if (k && !(k in kv) && !/<select/i.test(m[2])) kv[k] = v;
+  }
+  return kv;
+}
+const seochoAdapter = {
+  id: "seocho", sido: "서울", gu: "서초구", site: SEOCHO_PORTAL.site, url: SEOCHO_PORTAL.url,
+  list: fetchSeochoPortalList,
+  // '기타' 는 모아타운·역세권 청년주택·민간임대 등이 섞여 있다 → 모아타운만 받고, 청년주택·임대주택은 정비사업이 아니라 뺀다(서울플랜+ 안심주택 유형을 뺀 것과 같은 기준)
+  kindOf: (r) => SEOCHO_PORTAL.kind[r.kindRaw] ?? (/모아타운/.test(r.name) ? MOA_KIND : null),
+  enrich: (r) => fetchSeochoPortalDetail(r.id),
+  build(r, d, kind) {
+    d ??= {};
+    const hist = portalHistory(d["추진현황"]);
+    const latest = hist[hist.length - 1];
+    const extra = [];
+    if (d["사업주체"]) extra.push(["사업주체", d["사업주체"]]);
+    if (d["지역지구"]) extra.push(["용도지역", d["지역지구"]]);
+    if (d["기존현황"]) extra.push(["기존 현황", d["기존현황"]]);
+    const planParts = [d["동 및 세대"], d["층수(지상)"] ? `지상 ${d["층수(지상)"]}${d["층수(지하)"] ? ` / 지하 ${d["층수(지하)"]}` : ""}` : "", d["용적율"] ? `용적률 ${d["용적율"]}` : ""].filter(Boolean);
+    if (planParts.length) extra.push(["계획", planParts.join(" · ")]);
+    if (d["시공사"]) extra.push(["시공사", d["시공사"]]);
+    if (hist.length) extra.push(["추진현황", hist.map((h) => `${h.date} ${h.text}`).join(" · ")]);
+    if (d["향후계획"]) extra.push(["향후 계획", d["향후계획"]]);
+    extra.push(["출처", `${SEOCHO_PORTAL.site} 사업현황 · ${r.region} · 진행상태 '${r.stage}'`]);
+    const ex = unitsOf(d["기존현황"]), pl = unitsOf(d["동 및 세대"]);
+    // 사업위치는 "잠원동 56-3" 이 보통이지만 "서울특별시 서초구 잠원동 51"·"모아타운A : 양재동 374번지 일원 / …" 도 있다 → 동부터 시작하게 다듬는다
+    const jibun = r.jibun.replace(/^.*?:\s*/, "").replace(/^서울(특별)?시\s*/, "").replace(/^서초구\s*/, "").replace(/\s*\/.*$/, "").trim();
+    return {
+      kind, name: r.name.replace(/\(아\)/g, "아파트"), jibun, loc: `서울특별시 서초구 ${jibun}`, stage: r.stage,
+      area: numOf(d["구역면적"]) || null,
+      docs: ex ? `${(+ex).toLocaleString()}세대${pl ? ` (계획 ${(+pl).toLocaleString()})` : ""}` : "",
+      extra, hist,
+      note: latest ? { date: latest.date, kw: portalKw(latest.text), title: `${SEOCHO_PORTAL.site} 추진현황`, url: SEOCHO_PORTAL.url, src: PORTAL_SOURCE } : null,
+      portal: { gu: "서초구", site: SEOCHO_PORTAL.site, url: SEOCHO_PORTAL.url, id: r.id },
+    };
+  },
+};
+
+/* ── 어댑터 2: 광명시청 「재건축정비사업 추진현황」 (한 페이지, 구역명이 열·항목이 행인 표 3개) ──
+ *  경기데이터드림 시트가 광명 하안주공 6·7·9·10·11·12단지(2025-12-10 정비구역 지정)·1·2단지(추진위 2025-11-20)를 아직 안 실어
+ *  아실에는 있는 폴리곤이 우리 지도에 없던 문제(2026-09-08 사용자 스크린샷). 행: 위치·구역면적·추진방식·사업시행자·기존/계획 용적률·동수·세대수·시공사·
+ *  추진현황(정비구역 지정·고시, 사업시행자 지정·고시, 추진위 승인, 조합설립인가, 사업시행인가, 관리처분인가, 철거·이주, 착공, 준공, 이전고시). 값 "-" 는 없음. */
+const GM_PORTAL = { site: "광명시청 재건축정비사업 추진현황", url: "https://www.gm.go.kr/pt/partInfo/ud/newtown/gm_rebuild.jsp" };
+const GM_STEPS = [
+  ["정비구역지정", /^정비구역/], ["정비구역지정(신탁 시행자 지정)", /^사업시행자/], ["추진위원회승인", /^추진위/], ["조합설립인가", /^조합설립/],
+  ["사업시행인가", /^사업시행인가|^정비사업계획인가|^사업시행계획/], ["관리처분인가", /^관리처분/], ["철거", /철거|이주/], ["착공", /^착공/], ["준공", /^준공/], ["이전고시", /^이전고시/],
+];
+async function fetchGwangmyeongPortalList() {
+  const html = await (await fetch(GM_PORTAL.url, { headers: { "User-Agent": UA, "Accept-Language": "ko" } })).text();
+  const rows = [];
+  for (const tb of html.matchAll(/<table[^>]*>([\s\S]*?)<\/table>/g)) {
+    const trs = [...tb[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<(th|td)[^>]*>([\s\S]*?)<\/\1>/g)].map((c) => stripTags(c[2])));
+    if (!trs.length || trs[0][0]?.replace(/\s/g, "") !== "구역명") continue;
+    const names = trs[0].slice(1).map((n) => n.replace(/\s+/g, ""));
+    const N = names.length;
+    const kvs = names.map(() => ({}));
+    for (const cells of trs.slice(1)) {
+      if (cells.length <= N) continue; // 라벨 없는 줄(조합사무실 주소)
+      const labels = cells.slice(0, cells.length - N).map((s) => s.replace(/\([^)]*\)/g, "").replace(/[\s/]/g, ""));
+      const key = labels[labels.length - 1]; // rowspan 그룹 라벨(기존현황·계획현황·추진현황) 뒤의 하위 라벨
+      cells.slice(-N).forEach((v, i) => {
+        const val = v.replace(/^-+$/, "").trim();
+        if (key && val && !(key in kvs[i])) kvs[i][key] = val;
+      });
+    }
+    names.forEach((name, i) => {
+      const kv = kvs[i];
+      const keys = Object.keys(kv);
+      const pick = (re) => keys.find((k) => re.test(k));
+      const val = (re) => (pick(re) ? kv[pick(re)] : "");
+      const loc = val(/^위치/);
+      const hist = [];
+      for (const [step, re] of GM_STEPS) {
+        const raw = val(re);
+        const d = dateOf(raw);
+        if (d) hist.push({ step, date: d, raw });
+      }
+      const last = hist[hist.length - 1];
+      const planUnitsRaw = val(/^(예정|계획)세대수/);
+      rows.push({
+        id: name, name, kindRaw: "재건축", jibun: loc.replace(/\s+/g, " ").trim(),
+        stage: last ? last.step + (/부분준공/.test(last.raw) ? "(부분)" : "") : "정비예정구역",
+        area: numOf(val(/면적/)), method: val(/^추진방식/), agent: val(/^사업시행자$/),
+        far: val(/^용적률$/), dongs: val(/^동수$/), units: unitsOf(val(/^세대수$/)) ?? numOf(val(/^세대수$/)),
+        planFar: val(/^계획용적률/), planUnits: unitsOf(planUnitsRaw) ?? numOf(planUnitsRaw),
+        builder: val(/^시공/), hist,
+      });
+    });
+  }
+  return rows;
+}
+const gwangmyeongAdapter = {
+  id: "gwangmyeong", sido: "경기", gu: "광명시", site: GM_PORTAL.site, url: GM_PORTAL.url,
+  list: fetchGwangmyeongPortalList,
+  kindOf: () => "재건축",
+  build(r, _d, kind) {
+    const extra = [];
+    if (r.method) extra.push(["추진방식", r.method + (r.agent ? ` · ${r.agent}` : "")]);
+    const ex = [r.dongs ? `${r.dongs}동` : "", r.units ? `${(+r.units).toLocaleString()}세대` : "", r.far ? `용적률 ${r.far}` : ""].filter(Boolean);
+    if (ex.length) extra.push(["기존 현황", ex.join(" · ")]);
+    const pl = [r.planUnits ? `${(+r.planUnits).toLocaleString()}세대` : "", r.planFar ? `용적률 ${r.planFar}` : ""].filter(Boolean);
+    if (pl.length) extra.push(["계획", pl.join(" · ")]);
+    if (r.builder) extra.push(["시공사", r.builder]);
+    if (r.hist.length) extra.push(["추진현황", r.hist.map((h) => `${h.date} ${h.step}${/부분준공/.test(h.raw) ? "(부분)" : ""}`).join(" · ")]);
+    extra.push(["출처", `${GM_PORTAL.site}(광명재건축 페이지) · ${r.stage}`]);
+    const latest = r.hist[r.hist.length - 1];
+    return {
+      kind, name: r.name, jibun: r.jibun, loc: `경기도 광명시 ${r.jibun}`, stage: r.stage, area: r.area || null,
+      docs: r.units ? `${(+r.units).toLocaleString()}세대${r.planUnits ? ` (계획 ${(+r.planUnits).toLocaleString()})` : ""}` : "",
+      extra, hist: r.hist.map((h) => ({ date: h.date, text: h.step })),
+      note: latest ? { date: latest.date, kw: latest.step.replace(/\(.*\)$/, ""), title: GM_PORTAL.site, url: GM_PORTAL.url, src: PORTAL_SOURCE } : null,
+      portal: { gu: "광명시", site: GM_PORTAL.site, url: GM_PORTAL.url, id: r.id },
+    };
+  },
+};
+const PORTAL_ADAPTERS = [seochoAdapter, gwangmyeongAdapter];
+
+/** 이름 비교 키: 정규화 이름에서 구분 기호까지 뺀 것 ("철산주공10,11단지" = "철산주공10·11단지") */
+const portalNameKey = (s) => normName(s).replace(/[·,/\s]/g, "");
+
+/**
+ * 지자체 포털 사업장 → 사업장 목록 행 (정보몽땅·경기 시트 행과 같은 모양 + extra·note·portal).
+ * @param existing 정보몽땅·경기·인천 목록(이름 중복 제거·기존 기록 동향 보강용)  @param prevProjects 이전 projects.json(실패 시 유지)
+ */
+export async function fetchGuPortals(existing, prevProjects) {
+  const prevKeep = (Array.isArray(prevProjects) ? prevProjects : []).filter((p) => p.source === PORTAL_SOURCE);
+  const used = new Set(existing.map((p) => p.no));
+  const out = [];
+  let newest = "";
+  for (const A of PORTAL_ADAPTERS) {
+    const cachePath = portalCachePath(A.id);
+    let cache = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : { fetchedAt: "", list: [], details: {} };
+    cache.details ??= {};
+    let list = cache.list ?? [];
+    const fresh = cache.fetchedAt && Date.now() - Date.parse(cache.fetchedAt) < 6 * 864e5;
+    console.log(`· 지자체 정비사업 포털 (${A.site})${fresh ? ` — 캐시 ${cache.fetchedAt.slice(0, 10)}` : ""}`);
+    if (!fresh) {
+      try {
+        const rows = await A.list();
+        if (!rows.length) throw new Error("0건");
+        // 페이지 매김이 깨져 첫 페이지만 온 경우 방지: 지난 목록의 절반도 안 되면 실패로 본다
+        if (list.length && rows.length < list.length / 2) throw new Error(`${rows.length}건 (지난 목록 ${list.length}건)`);
+        list = rows;
+        cache = { ...cache, fetchedAt: new Date().toISOString(), list };
+        fs.writeFileSync(cachePath, JSON.stringify(cache));
+      } catch (e) {
+        const keep = prevKeep.filter((p) => p.portal?.gu === A.gu);
+        console.warn(`  ! 목록 실패(${String(e.message).slice(0, 60)}) → ${list.length ? `캐시 ${list.length}건 사용` : `이전 자료 ${keep.length}건 유지`}`);
+        if (!list.length) {
+          out.push(...keep);
+          continue;
+        }
+      }
+    }
+    if (cache.fetchedAt > newest) newest = cache.fetchedAt;
+    const exRows = existing.filter((p) => (p.sido ?? "서울") === A.sido && p.gu === A.gu).map((p) => ({ p, n: portalNameKey(p.name), kc: kindClass(p.kind) }));
+    let done = 0, dup = 0, outOfScope = 0, detailFail = 0, enriched = 0, added = 0;
+    for (const r of list) {
+      if (PORTAL_DONE.test(r.stage)) {
+        done++;
+        continue;
+      }
+      const kind = A.kindOf(r);
+      if (!kind) {
+        outOfScope++;
+        continue;
+      }
+      const kc = kindClass(kind);
+      const n = portalNameKey(r.name);
+      const same = exRows.find((x) => n.length >= 2 && !digitsConflict(n, x.n) && (x.n === n || nameScore(n, x.n) >= 0.7) && (kc === x.kc || kc === "any" || x.kc === "any"));
+      if (same) {
+        dup++;
+        // 같은 사업장이 원자료에 이미 있으면 포털의 더 새로운 추진 일자를 최근 동향으로 보강한다(경기 시트가 뒤처지는 경우)
+        const hist = r.hist ?? [];
+        const latest = hist[hist.length - 1];
+        if (latest && (!same.p.note || latest.date > same.p.note.date)) {
+          same.p.note = { date: latest.date, kw: (latest.step ?? portalKw(latest.text ?? "")).replace(/\(.*\)$/, ""), title: `${A.site} 추진현황`, url: A.url, src: PORTAL_SOURCE };
+          if (Array.isArray(same.p.extra)) same.p.extra.push([`${A.gu} 포털 추진현황`, hist.map((h) => `${h.date} ${h.step ?? h.text}`).join(" · ")]);
+          enriched++;
+        }
+        continue;
+      }
+      let d = null;
+      if (A.enrich) {
+        if (!(r.id in cache.details)) {
+          try {
+            cache.details[r.id] = await A.enrich(r);
+            fs.writeFileSync(cachePath, JSON.stringify(cache));
+            await sleep(250);
+          } catch {
+            detailFail++;
+            cache.details[r.id] = null;
+          }
+        }
+        d = cache.details[r.id];
+      }
+      const b = A.build(r, d, kind);
+      out.push({ no: portalNo(`${A.id}|${r.id}`, used), sido: A.sido, gu: A.gu, guCode: A.sido === "서울" ? GU_CODE[A.gu] : sggCodeOf(SIDO_FULL[A.sido], A.gu), source: PORTAL_SOURCE, cafe: null, map: null, ...b });
+      added++;
+    }
+    console.log(`  목록 ${list.length}건 → 끝난 기록 ${done}·범위 밖(청년·임대주택 등) ${outOfScope}·원자료와 같은 이름 ${dup}(동향 보강 ${enriched}) 제외 → 후보 ${added}건${detailFail ? ` (상세 실패 ${detailFail})` : ""}`);
+  }
+  SOURCE_INFO.portal = newest.slice(0, 10);
+  for (const p of out) console.log(`    ${p.gu} ${p.name} | ${p.jibun} | ${p.kind} · ${p.stage}${p.note ? ` | ${p.note.date} ${p.note.kw}` : ""}`);
+  return out;
+}
+
+/**
+ * 좌표가 나온 뒤의 2차 중복 제거: 지자체포털 후보가 ① 같은 도형에 연결됐거나 100 m 안에 있는 같은 유형의 다른 출처(끝나지 않은) 기록,
+ * ② 유형이 맞는 서울플랜+ 도형 안(서울플랜+ 자료가 없으면 이전 서울플랜+ 기록 100 m 안)이면 뺀다 — 서울플랜+ 기록의 번호·출처를 흔들지 않기 위해.
+ */
+export function dedupeGuPortal(projects, plan, prevProjects, zoneByFid) {
+  const portal = projects.filter((p) => p.source === PORTAL_SOURCE);
+  if (!portal.length) return;
+  const kcOk = (a, b) => {
+    const x = kindClass(a), y = kindClass(b);
+    return x === y || x === "any" || y === "any";
+  };
+  const others = projects.filter((p) => p.source !== PORTAL_SOURCE && p.lat != null && !DONE_RAW.test((p.stage ?? "").split(" · ")[0]));
+  const infoBySn = new Map((plan?.infos ?? []).map((i) => [i.presentSn, i]));
+  // 모아타운(BZ201, cls 비어 있음)은 포털 기록도 모아타운일 때만 같은 사업으로 본다
+  const planOk = (T, code, p) => (code === "BZ201" ? /모아타운/.test(p.kind ?? "") : planCompatible(T, p));
+  const planFeats = (plan?.features ?? [])
+    .filter((f) => SEOULPLAN_TYPES[f.properties.type])
+    .map((f) => ({ f, b: bbox(f.geometry), T: SEOULPLAN_TYPES[f.properties.type], n: normName(infoBySn.get(f.properties.presentSn)?.name || f.properties.name) }));
+  const prevPlan = plan ? [] : (Array.isArray(prevProjects) ? prevProjects : []).filter((p) => p.source === "서울플랜+" && p.lat != null);
+  let dropped = 0;
+  for (const p of portal) {
+    let why = null;
+    const pn = normName(p.name);
+    const pt = p.lat != null ? [p.lng, p.lat] : null;
+    // ① 같은 도형에 연결됐거나, 다른 기록이 연결된 도형 안에 있거나, 100 m 안 — 유형이 맞는 끝나지 않은 기록
+    const near = others.find((q) => {
+      if ((q.sido ?? "서울") !== (p.sido ?? "서울")) return false;
+      if (p.zoneFid && q.zoneFid === p.zoneFid) return true;
+      if (!kcOk(p.kind, q.kind)) return false;
+      if (pt && distKm(p, q) <= 0.1) return true;
+      const z = q.zoneFid ? zoneByFid?.get(q.zoneFid) : null;
+      return !!(pt && z && pointInGeom(pt, z.geometry));
+    });
+    if (near) why = `${near.source} '${near.name}'`;
+    else if ((p.sido ?? "서울") === "서울") {
+      // ② 유형이 맞는 서울플랜+ 도형 안에 있거나, 같은 구의 서울플랜+ 사업과 정규화 이름이 같다(applySeoulPlan 이 붙일 것과 같은 조건)
+      const hit = planFeats.find(
+        ({ f, b, T, n }) =>
+          planOk(T, f.properties.type, p) &&
+          ((pt && pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && pointInGeom(pt, f.geometry)) || (pn.length >= 2 && n === pn && (f.properties.gu === p.guCode || !f.properties.gu))),
+      );
+      if (hit) why = `서울플랜+ 도형 '${hit.f.properties.name}' (${hit.T.nm})`;
+      else {
+        const q = prevPlan.find((q) => kcOk(p.kind, q.kind) && ((pt && distKm(p, q) <= 0.1) || (pn.length >= 2 && normName(q.name) === pn && q.gu === p.gu)));
+        if (q) why = `이전 서울플랜+ '${q.name}'`;
+      }
+    }
+    if (!why) continue;
+    projects.splice(projects.indexOf(p), 1);
+    dropped++;
+    console.log(`  지자체포털 중복 제외: ${p.name} ↔ ${why}`);
+  }
+  console.log(`· 지자체포털 보충 사업장 ${portal.length - dropped}건 (좌표 기준 중복 ${dropped} 제외)`);
+}
+
 /**
  * 모아타운(소규모주택정비 관리지역) — 서울 도시계획포털 결정고시 목록에서 "소규모주택정비 관리계획(모아타운 관리계획) 승인" 고시를 모아
  * 위치별 항목으로 만들고(관리계획 승인 = 관리지역 지정), data/moatown-sites.json(서울시 대상지 현황 정리)의 아직 승인 전 대상지를 더한다.
@@ -1581,7 +1944,13 @@ export function areaM2(g) {
 
 async function fetchParcel(p, cache) {
   const ck = p.pnu ? `pnu:${p.pnu}` : `pt:${p.lng},${p.lat}`;
-  if (ck in cache) return cache[ck];
+  // 장소 검색 지점의 필지 합치기(addParcelZones)는 규모 기준을 낮춰(minArea) 부르는데, 캐시에 '규모 미달' 로만 남은 필지는 다시 조회한다
+  const min = p.minArea ?? PARCEL_MIN_AREA(p.kind);
+  if (ck in cache) {
+    const c = cache[ck];
+    const m = c?.skip?.match(/대\s*(\d+)㎡$/);
+    if (!(p.minArea != null && m && +m[1] >= min)) return c;
+  }
   if (!VWORLD_KEY || parcelDown) return undefined;
   const u = new URL("https://api.vworld.kr/req/data");
   const o = { service: "data", request: "GetFeature", data: "LP_PA_CBND_BUBUN", key: VWORLD_KEY, domain: VWORLD_DOMAIN, format: "json", size: "3", page: "1", crs: "EPSG:4326" };
@@ -1599,7 +1968,7 @@ async function fetchParcel(p, cache) {
         const jibun = (f.properties?.jibun ?? "").trim();
         const area = Math.round(areaM2(f.geometry));
         // 지목이 '대'(대지)이고 단지 규모일 때만
-        if (/대$/.test(jibun) && area >= PARCEL_MIN_AREA(p.kind)) {
+        if (/대$/.test(jibun) && area >= min) {
           const round = (c) => (typeof c[0] === "number" ? c.map((x) => +x.toFixed(6)) : c.map(round));
           v = { geometry: { type: f.geometry.type, coordinates: round(f.geometry.coordinates) }, pnu: f.properties.pnu, jibun, addr: f.properties.addr, area };
         } else v = { skip: `${jibun || "지목?"} ${area}㎡` };
@@ -1754,34 +2123,54 @@ async function addParcelZones(projects, zones, prevZones) {
     const fid = `P${p.no}`;
     let feat = null;
     let r;
-    if (p.complexes) {
-      // 1기 신도시 선도지구: 구성 단지마다 장소 검색 → 필지, 전부 합쳐 MultiPolygon (같은 필지는 한 번만)
+    // 대표지번 필지 하나가 단지 전체가 아닐 수 있다(여러 필지로 나뉜 단지, 여러 단지가 한 사업, 대표지번·장소점이 상가·도로·제방 필지).
+    // → 구성 단지(1기 신도시) 또는 이름에서 나눈 단지들("하안주공10·11단지" → 10단지·11단지, 단일 단지면 그 이름)을 장소 검색해
+    //   나온 지점(단지·동·입구, 최대 4곳)마다 필지를 조회하고, 지목 '대'·규모 이상인 서로 다른 필지를 모두 합친다(MultiPolygon).
+    //   단일 단지는 대표지번 필지가 규모를 채우면 그대로 쓰고, 작거나 지목이 다를 때만 장소 검색으로 보충한다.
+    //   (2026-09-08 아실 비교: 하안주공3·4단지가 한 단지 필지만, 10·11단지 33,927㎡(실제 13만㎡), 양재우성 154-2 대 1,689㎡(단지가 여러 필지), 철산주공12단지 장소점이 제방 필지)
+    const queries = p.complexes ?? placeQueries(p.gu, p.name).map((q) => ({ q: q.query, core: q.core }));
+    const single = !p.complexes && queries.length < 2;
+    r = single || !queries.length ? await fetchParcel(p, cache) : undefined;
+    if (!(single && r?.geometry) && queries.length) {
       const polys = [];
       const seenPnu = new Set();
       let area = 0;
       const found = [];
-      for (const c of p.complexes) {
-        // 단지 이름 대안("양지5단지 한양|양지마을 한양5단지")과 검색 결과 지점(최대 4곳)을 차례로 → 지목 '대'인 단지 필지가 나올 때까지
-        let rr = null;
-        outer: for (const alt of c.core.split("|")) {
-          for (const pt of await searchPlaceItems(`${p.gu.split(" ")[0]} ${alt.trim()}`, SIDO_FULL[p.sido], p.gu, alt.trim())) {
-            const r2 = await fetchParcel({ ...p, pnu: null, lng: pt.lng, lat: pt.lat }, cache);
-            if (r2?.geometry) {
-              rr = r2;
-              break outer;
-            }
-          }
+      const add = (rr, label) => {
+        if (!rr?.geometry) return false;
+        if (rr.pnu && seenPnu.has(rr.pnu)) {
+          if (label && !found.includes(label)) found.push(label); // 같은 필지를 쓰는 단지(3·4단지가 한 필지)도 '찾은 단지'로
+          return false;
         }
-        if (!rr || (rr.pnu && seenPnu.has(rr.pnu))) continue;
         if (rr.pnu) seenPnu.add(rr.pnu);
         const g = rr.geometry;
         polys.push(...(g.type === "Polygon" ? [g.coordinates] : g.coordinates));
         area += rr.area;
-        found.push(c.core.split("|")[0]);
+        if (label && !found.includes(label)) found.push(label);
+        return true;
+      };
+      if (!single && !p.complexes) add(await fetchParcel(p, cache), null); // 여러 단지 사업: 대표지번 필지도 포함
+      for (const c of queries) {
+        const label = c.core.split("|")[0].trim();
+        // 단지 이름 대안("양지5단지 한양|양지마을 한양5단지")은 하나만 맞으면 된다; 맞은 대안의 검색 지점은 모두 조회
+        for (const alt of c.core.split("|")) {
+          let hit = false;
+          // 단지 안 지점(동·입구)의 필지는 동마다 필지가 나뉜 단지(양재우성 153·137-1·138-3…)도 있어 500㎡ 부터 받고, 합친 면적이 규모 기준을 채워야 쓴다
+          for (const pt of await searchPlaceItems(`${p.gu.split(" ")[0]} ${alt.trim()}`, SIDO_FULL[p.sido], p.gu, alt.trim())) {
+            if (add(await fetchParcel({ ...p, pnu: null, lng: pt.lng, lat: pt.lat, minArea: 500 }, cache), label)) hit = true;
+          }
+          if (hit) break;
+        }
       }
-      if (polys.length) r = { geometry: { type: "MultiPolygon", coordinates: polys }, area, addr: `${found.length}/${p.complexes.length} 단지 필지: ${found.join(" · ")}`, pnu: null };
-      else r = { skip: "단지 필지 없음" };
-    } else r = await fetchParcel(p, cache);
+      if (polys.length && area >= PARCEL_MIN_AREA(p.kind)) {
+        r = { geometry: { type: "MultiPolygon", coordinates: polys }, area, pnu: null, addr: `${found.length}/${queries.length} 단지 필지: ${found.join(" · ")}${seenPnu.size > 1 ? ` (${seenPnu.size}필지, 장소 검색 지점 기준이라 일부일 수 있음)` : ""}` };
+      } else if (polys.length) {
+        r = { skip: `필지 합계 ${Math.round(area)}㎡ 규모 미달` };
+      } else if (r === undefined) {
+        // V-World 를 못 쓰는 환경이면 undefined 로 두어 아래에서 이전 자료를 유지한다
+        r = p.complexes ? (parcelDown || vworldDown ? undefined : { skip: "단지 필지 없음" }) : await fetchParcel(p, cache);
+      }
+    }
     if (r?.geometry) {
       const g = r.geometry;
       feat = {
@@ -1852,7 +2241,11 @@ async function main() {
     }
   }
   const seoulList = await collect("서울", "cleanup", async () => (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" })));
-  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon)), ...fetchNewtown(), ...moa.projects];
+  const gyeonggiList = await collect("경기", "gyeonggi", fetchGyeonggi);
+  const incheonList = await collect("인천", "incheon", fetchIncheon);
+  // 지자체 정비사업 포털(서초구·광명시): 정보몽땅·경기 시트에 없는 안전진단·기본계획·최근 지정 구역을 보충 — 좌표가 나온 뒤 dedupeGuPortal 로 다시 걸러낸다
+  const portalList = await fetchGuPortals([...seoulList, ...gyeonggiList, ...incheonList], prevProjects);
+  const list = [...seoulList, ...gyeonggiList, ...incheonList, ...portalList, ...fetchNewtown(), ...moa.projects];
   if (!list.length) throw new Error("사업장 자료를 하나도 얻지 못함");
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
   seedGeoCacheFromPrevious();
@@ -2001,6 +2394,7 @@ async function main() {
       zoneHow: how,
       note: p.note ?? noteFor(p, board),
       ...(p.complexes ? { complexes: p.complexes } : {}),
+      ...(p.portal ? { portal: p.portal } : {}),
     });
   }
   fs.writeFileSync(geoCachePath, JSON.stringify(geoCache));
@@ -2015,6 +2409,8 @@ async function main() {
     remapped++;
   }
   if (remapped) console.log(`  중복 도형에 연결된 사업장 ${remapped}건을 대표 도형으로 이동`);
+  /* ---- 지자체포털 후보 중 좌표로 보아 기존 기록·서울플랜+ 도형과 겹치는 것 제외 ---- */
+  dedupeGuPortal(projects, plan, prevProjects, zoneByFid);
   /* ---- 서울플랜+ 도시계획사업(신속통합기획·가로주택·리모델링·역세권 …): 기존 사업장에 추진단계 부착, 없는 곳은 새 기록 + 도형 ---- */
   applySeoulPlan(projects, zones, plan, prevZones, prevProjects, zoneByFid);
   /* ---- 통합 전 옛 기록(정보몽땅에 남은 것) 표시 → 앱은 완공으로 ---- */
@@ -2055,6 +2451,7 @@ async function main() {
         housinginfo: SOURCE_INFO.housinginfo ?? "",
         bldrgst: SOURCE_INFO.bldrgst ?? "",
         seoulplan: plan?.fetchedAt ?? prevMeta?.sources?.seoulplan ?? "",
+        portal: SOURCE_INFO.portal || prevMeta?.sources?.portal || "",
       },
       changes: changes.added,
     }),
