@@ -19,7 +19,7 @@ export type ZoneProps = {
   /** 시도 (서울·경기·인천). 없으면 서울 */
   sido?: Sido;
   /** 자료 출처: seoul = 서울시 의제처리구역 SHP, vworld = V-World 지구단위계획(UPIS) 레이어, parcel = 대표지번 필지(정비구역 미지정 재건축 단지, V-World 지적도) */
-  src?: "seoul" | "vworld" | "parcel";
+  src?: "seoul" | "vworld" | "parcel" | "special";
   /** parcel 일 때 필지 PNU·주소 */
   pnu?: string | null;
   jibun?: string;
@@ -75,7 +75,9 @@ export type Project = {
   zoneId: string | null;
   zoneFid: string | null;
   /** map=정보몽땅 고시코드, point=대표지번이 구역 안, name=구역명 유사, parcel=정비구역 없어 대표지번 필지 경계를 씀 */
-  zoneHow: "map" | "point" | "name" | "parcel" | null;
+  zoneHow: "map" | "point" | "name" | "parcel" | "special" | null;
+  /** 최근 동향 한 줄 (빌드 시 정보몽땅 고시·공고 제목 / 경기 자료의 최신 인가일에서 뽑음) — 지도 라벨·패널 표시용 */
+  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" } | null;
 };
 
 export type DataMeta = {

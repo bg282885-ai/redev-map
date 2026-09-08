@@ -17,6 +17,9 @@ type Props = {
   dimFids: Set<string> | null;
   /** 폴리곤 툴팁 둘째 줄 (연결 사업장 구분·단계 / 고시 연도) */
   zoneSub: Map<string, string>;
+  /** 확대 시 항상 보이는 라벨 — 구역(fid) / 폴리곤 없는 사업장(no): [짧은 이름, 동향·단계] */
+  zoneLabel: Map<string, [string, string]>;
+  projectLabel: Map<number, [string, string]>;
   selected: Selection | null;
   selectedZoneFid: string | null;
   base: BaseKey;
@@ -32,6 +35,21 @@ const SEOUL: L.LatLngExpression = [37.52, 126.95];
 /* 이 줌 이상에서는 경계 폴리곤이 있는 사업장의 원 마커를 숨긴다 — 원과 면이 겹쳐 무엇을 눌러야 하는지 헷갈리던 문제(2026-09-08).
    폴리곤을 누르면 연결 사업장이 하나일 때 그 사업장이 열린다(MapApp.selectZoneFromMap) */
 const LINKED_MARKER_MAX_ZOOM = 14;
+/* 라벨(짧은 이름 + 동향)은 줌 15 이상, 3만㎡ 이상 큰 구역은 14 부터, 폴리곤 없는 사업장은 16 부터 (아실 '재재' 라벨 방식, 2026-09-08) */
+const LABEL_ZOOM = 15;
+const LABEL_ZOOM_BIG = 14;
+const LABEL_BIG_AREA = 30000;
+const LABEL_ZOOM_POINT = 16;
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function labelIcon(text: [string, string], color: string, point: boolean) {
+  return L.divIcon({
+    className: `rm-label${point ? " rm-label-pt" : ""}`,
+    html: `<span style="border-color:${color}">${esc(text[0])}${text[1] ? ` <b>${esc(text[1])}</b>` : ""}</span>`,
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+  });
+}
 
 function applyFocus(map: L.Map, focus: Focus, panelOpen: boolean, animate: boolean) {
   const wide = window.innerWidth >= 1024;
@@ -67,6 +85,8 @@ function zoneStyle(f: ZoneFeature, dim: boolean): L.PathOptions {
   if (dim) return { color: "#9CA3AF", weight: 1, dashArray: "3 3", fillColor: color, fillOpacity: 0.08, opacity: 0.7 };
   // 대표지번 필지 경계(정비구역 미지정 단지)는 점선으로 — 정비구역과 구분
   if (f.properties.src === "parcel") return { color, weight: 1.6, dashArray: "5 3", fillColor: color, fillOpacity: 0.18, opacity: 0.95 };
+  // 지구단위계획 특별계획구역 경계(정비구역 미지정)는 긴 점선
+  if (f.properties.src === "special") return { color, weight: 1.8, dashArray: "9 4", fillColor: color, fillOpacity: 0.16, opacity: 0.95 };
   return { color, weight: 1.4, fillColor: color, fillOpacity: 0.28, opacity: 0.95 };
 }
 
@@ -82,6 +102,15 @@ export default function MapView(p: Props) {
   const freeMarkersRef = useRef<L.LayerGroup | null>(null);
   const linkedMarkersRef = useRef<L.LayerGroup | null>(null);
   const markerByNo = useRef(new Map<number, L.CircleMarker>());
+  /* 콜백·패널 상태는 ref 로 들고 다닌다 (지도 이벤트 핸들러가 최신 값을 보도록). 아래 sync 함수들이 참조하므로 먼저 선언 */
+  const panelOpenRef = useRef(p.panelOpen);
+  const cb = useRef({ onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail });
+  useEffect(() => {
+    cb.current = { onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail };
+  });
+  useEffect(() => {
+    panelOpenRef.current = p.panelOpen;
+  }, [p.panelOpen]);
   const dimRef = useRef<Set<string> | null>(p.dimFids);
   useEffect(() => {
     dimRef.current = p.dimFids;
@@ -95,19 +124,66 @@ export default function MapView(p: Props) {
     if (hide && map.hasLayer(g)) map.removeLayer(g);
     if (!hide && !map.hasLayer(g)) g.addTo(map);
   };
+  /* 라벨 — 화면 안·줌 조건에 맞는 것만 그때그때 다시 만든다 (moveend 마다) */
+  const labelLayerRef = useRef<L.LayerGroup | null>(null);
+  const labelData = useRef({ zones: p.zones, visibleFids: p.visibleFids, showZones: p.showZones, projects: p.projects, showMarkers: p.showMarkers, zoneLabel: p.zoneLabel, projectLabel: p.projectLabel });
+  const syncLabels = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (labelLayerRef.current) {
+      map.removeLayer(labelLayerRef.current);
+      labelLayerRef.current = null;
+    }
+    const d = labelData.current;
+    const z = map.getZoom();
+    const bounds = map.getBounds().pad(0.05);
+    const group = L.layerGroup();
+    if (d.showZones && d.zones && z >= LABEL_ZOOM_BIG) {
+      for (const f of d.zones.features) {
+        const fp = f.properties;
+        if (d.visibleFids && !d.visibleFids.has(fp.fid)) continue;
+        if (z < LABEL_ZOOM && (fp.area ?? 0) < LABEL_BIG_AREA) continue;
+        const bb = fp.bbox;
+        const c = L.latLng((bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2);
+        if (!bounds.contains(c)) continue;
+        const text = d.zoneLabel.get(fp.fid);
+        if (!text) continue;
+        const m = L.marker(c, { icon: labelIcon(text, CATEGORY_COLOR[zoneCategory(fp.code)], false), keyboard: false });
+        m.on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          cb.current.onSelectZone(fp.fid);
+        });
+        group.addLayer(m);
+      }
+    }
+    if (d.showMarkers && z >= LABEL_ZOOM_POINT) {
+      for (const pr of d.projects) {
+        if (pr.lat == null || pr.lng == null) continue;
+        if (pr.zoneFid && d.showZones && zoneByFid.current.has(pr.zoneFid)) continue; // 폴리곤이 있으면 구역 라벨로
+        const c = L.latLng(pr.lat, pr.lng);
+        if (!bounds.contains(c)) continue;
+        const text = d.projectLabel.get(pr.no);
+        if (!text) continue;
+        const m = L.marker(c, { icon: labelIcon(text, STAGE_COLOR[stageGroup(pr.stage)], true), keyboard: false });
+        m.on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          cb.current.onSelectProject(pr.no);
+        });
+        group.addLayer(m);
+      }
+    }
+    group.addTo(map);
+    labelLayerRef.current = group;
+  };
+  useEffect(() => {
+    labelData.current = { zones: p.zones, visibleFids: p.visibleFids, showZones: p.showZones, projects: p.projects, showMarkers: p.showMarkers, zoneLabel: p.zoneLabel, projectLabel: p.projectLabel };
+    syncLabels();
+  }, [p.zones, p.visibleFids, p.showZones, p.projects, p.showMarkers, p.zoneLabel, p.projectLabel, ready]);
   const highlighted = useRef<{ zone?: string; no?: number }>({});
   const pendingFocus = useRef<Focus | null>(null);
   /* 최근 실행한 이동 — 직후에 컨테이너 크기가 바뀌면(CSS·폰트 늦게 적용, 패널 열림) 같은 이동을 다시 맞춘다 */
   const lastFocus = useRef<{ f: Focus; t: number } | null>(null);
   const createdAt = useRef(0);
-  const panelOpenRef = useRef(p.panelOpen);
-  const cb = useRef({ onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail });
-  useEffect(() => {
-    cb.current = { onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail };
-  });
-  useEffect(() => {
-    panelOpenRef.current = p.panelOpen;
-  }, [p.panelOpen]);
 
   /* 지도 생성 — 컨테이너가 0×0 인 상태(CSS 적용 전)에서 만들면 화면이 어긋나므로 크기가 잡힌 뒤 만든다 */
   useEffect(() => {
@@ -123,6 +199,7 @@ export default function MapView(p: Props) {
         L.control.zoom({ position: "bottomright" }).addTo(map);
         L.control.scale({ imperial: false, position: "bottomright" }).addTo(map);
         map.on("zoomend", syncLinkedMarkers);
+        map.on("moveend", syncLabels);
         mapRef.current = map;
         createdAt.current = Date.now();
         (window as unknown as { __rmMap?: L.Map }).__rmMap = map; // 디버깅용
@@ -153,6 +230,7 @@ export default function MapView(p: Props) {
       zb.clear();
       freeMarkersRef.current = null;
       linkedMarkersRef.current = null;
+      labelLayerRef.current = null;
       mb.clear();
     };
   }, []);

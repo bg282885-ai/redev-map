@@ -45,9 +45,9 @@ const SHP_PROJ =
   "+ellps=bessel +units=m +no_defs +towgs84=-115.80,474.99,674.11,1.16,-2.31,-1.63,6.43";
 
 /** 열린데이터광장 데이터셋 페이지에서 최신 파일 순번과 이름을 읽는다 (downloadFile('9') 중 가장 큰 번호) */
-async function latestShpInfo() {
+async function latestShpInfo(infId = "OA-20957") {
   try {
-    const html = await (await fetch("https://data.seoul.go.kr/dataList/OA-20957/F/1/datasetView.do", { headers: { "User-Agent": UA } })).text();
+    const html = await (await fetch(`https://data.seoul.go.kr/dataList/${infId}/F/1/datasetView.do`, { headers: { "User-Agent": UA } })).text();
     const files = [...html.matchAll(/title="([^"]+\.zip)"[^>]*onclick="javascript:downloadFile\('(\d+)'\)/g)].map((m) => ({ name: m[1], seq: +m[2] }));
     files.sort((a, b) => b.seq - a.seq);
     return files[0] ?? null;
@@ -81,6 +81,117 @@ async function downloadShp() {
   const shp = findFile(dir, ".shp");
   if (!shp) throw new Error("zip 안에 .shp 없음");
   return shp;
+}
+
+/**
+ * 서울시 지구단위계획구역(특별계획구역) 공간정보 — 열린데이터광장 OA-21164, UQ165 SHP(EPSG:5174, euc-kr), 월간, 공공누리 1유형.
+ * 압구정 3~5구역처럼 정비구역은 아직 없지만 지구단위계획의 특별계획구역으로 경계가 정해진 재건축·재개발 단지의 경계로 쓴다
+ * (2026-09-08, 아실 비교 후 추가). 실패하면 이전 zones.geojson 의 src "special" 을 유지한다.
+ */
+async function downloadSpecialShp() {
+  const info = process.env.SEOUL_UQ165_SEQ ? { seq: +process.env.SEOUL_UQ165_SEQ, name: `seq${process.env.SEOUL_UQ165_SEQ}.zip` } : await latestShpInfo("OA-21164");
+  if (!info) throw new Error("OA-21164 파일 목록을 읽지 못함");
+  const seq = String(info.seq);
+  const zip = path.join(RAW, `uq165_${seq}.zip`);
+  SOURCE_INFO.seoulSpecial = info.name;
+  if (!fs.existsSync(zip) || fs.statSync(zip).size < 10_000) {
+    console.log(`· 특별계획구역 SHP 내려받기 (서울 열린데이터광장 OA-21164, ${info.name})`);
+    // 데이터셋마다 숨은 필드(infSeq 등)가 달라 페이지의 frmFile 폼 값을 그대로 쓴다 (OA-21164 는 infSeq=2 — 1 로 보내면 "잘못된 접근")
+    const page = await (await fetch("https://data.seoul.go.kr/dataList/OA-21164/F/1/datasetView.do", { headers: { "User-Agent": UA } })).text();
+    const form = page.match(/<form[^>]*name="frmFile"[\s\S]*?<\/form>/)?.[0] ?? "";
+    const fields = Object.fromEntries(
+      [...form.matchAll(/<input[^>]*>/g)]
+        .map((m) => [m[0].match(/name="([^"]+)"/)?.[1], m[0].match(/value="([^"]*)"/)?.[1] ?? ""])
+        .filter((x) => x[0]),
+    );
+    const body = new URLSearchParams({ infId: "OA-21164", infSeq: "2", useCache: "false", ...fields, seq });
+    const res = await fetch("https://datafile.seoul.go.kr/bigfile/iot/inf/nio_download.do?&useCache=false", {
+      method: "POST",
+      headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: "https://data.seoul.go.kr/dataList/OA-21164/F/1/datasetView.do" },
+      body,
+    });
+    if (!res.ok) throw new Error(`특별계획구역 SHP 다운로드 실패 HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.subarray(0, 2).toString() !== "PK") throw new Error("특별계획구역 SHP 응답이 zip이 아님");
+    fs.writeFileSync(zip, buf);
+  }
+  const dir = path.join(RAW, `uq165_${seq}`);
+  if (!findFile(dir, ".shp")) {
+    fs.mkdirSync(dir, { recursive: true });
+    new AdmZip(zip).extractAllTo(dir, true);
+  }
+  const shp = findFile(dir, ".shp");
+  if (!shp) throw new Error("특별계획구역 zip 안에 .shp 없음");
+  return shp;
+}
+
+/** 특별계획구역 폴리곤 전부 (연결 단계에서 필요한 것만 zones 에 넣는다) */
+async function buildSpecialZones() {
+  try {
+    const shp = await downloadSpecialShp();
+    const tmp = path.join(RAW, "special_raw.geojson");
+    const q = (s) => `"${s.replace(/\\/g, "/")}"`;
+    await mapshaper.runCommands(`-i ${q(shp)} encoding=euc-kr -proj from="${SHP_PROJ}" crs=wgs84 -simplify interval=1 keep-shapes -o ${q(tmp)} format=geojson precision=0.000001`);
+    const raw = JSON.parse(fs.readFileSync(tmp, "utf8"));
+    const out = raw.features
+      .filter((f) => f.geometry)
+      .map((f) => {
+        const p = f.properties;
+        return {
+          type: "Feature",
+          geometry: f.geometry,
+          properties: {
+            fid: `S${p.PRESENT_SN ?? p.OBJECTID ?? Math.random().toString(36).slice(2)}`, id: p.WTNNC_SN ?? "", name: (p.DGM_NM ?? "").trim(), code: "UQ1650",
+            gu: p.SIGNGU_SE ?? "11000", area: Math.round(+p.DGM_AR || areaM2(f.geometry)), ntfc: p.NTFC_SN ?? "", bbox: bbox(f.geometry), sido: "서울", src: "special",
+          },
+        };
+      });
+    console.log(`  특별계획구역 ${out.length}개`);
+    return out;
+  } catch (e) {
+    console.warn("  특별계획구역 자료 실패:", e.message.slice(0, 80), "→ 이전 자료 유지");
+    return null;
+  }
+}
+
+/**
+ * 정비구역 폴리곤이 없는 재건축·재개발 사업장의 대표지번이 특별계획구역 안에 있으면 그 경계를 쓴다 (필지 폴백보다 먼저).
+ * 이름 숫자가 다르면(특별계획구역3 안에 4구역 사업장) 건너뛴다. 큰 특별계획구역(40만㎡ 이상)은 여러 단지를 덮으므로 제외.
+ */
+function linkSpecialZones(projects, zones, specials, prevZones) {
+  const prevSpecial = new Map((prevZones?.features ?? []).filter((f) => f.properties?.src === "special").map((f) => [f.properties.fid, f]));
+  const pool = specials ?? [...prevSpecial.values()];
+  if (!pool.length) return 0;
+  const added = new Map();
+  let n = 0;
+  for (const p of projects) {
+    if (p.zoneFid || p.lat == null || p.lng == null || (p.sido ?? "서울") !== "서울") continue;
+    const kc = kindClass(p.kind);
+    // 재건축·소규모재건축과 도심 도시정비형 재개발만 (주택정비형 재개발은 역세권 활성화 등 무관한 특별계획구역에 걸릴 수 있음)
+    if (!(kc === "rebuild" || kc === "small" || (kc === "redev" && /도시정비형|도시환경|역세권/.test(p.kind + p.name)))) continue;
+    const pt = [p.lng, p.lat];
+    const pn = normName(p.name);
+    const hits = pool.filter((z) => {
+      const b = z.properties.bbox;
+      if (z.properties.area > 400000) return false;
+      if (!(pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && pointInGeom(pt, z.geometry))) return false;
+      return !digitsConflict(pn, normName(z.properties.name));
+    });
+    if (!hits.length) continue;
+    hits.sort((a, b) => a.properties.area - b.properties.area); // 가장 작은(구체적인) 특별계획구역
+    const z = hits[0];
+    if (!added.has(z.properties.fid)) {
+      const code = kc === "rebuild" ? "UQ1240" : kc === "small" ? "UQ1280" : "UQ1221";
+      added.set(z.properties.fid, { ...z, properties: { ...z.properties, code, gu: p.guCode ?? z.properties.gu } });
+    }
+    p.zoneFid = z.properties.fid;
+    p.zoneId = z.properties.id || z.properties.fid;
+    p.zoneHow = "special";
+    n++;
+  }
+  zones.push(...added.values());
+  console.log(`· 특별계획구역 경계로 연결 ${n}건 (구역 ${added.size}개${specials ? "" : ", 이전 자료"})`);
+  return n;
 }
 
 function findFile(dir, ext) {
@@ -145,6 +256,79 @@ async function buildZones(shp) {
 /* ------------------------------------------------------------------ */
 /*  2. 정보몽땅 사업장 목록                                               */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/*  정보몽땅 고시/공고 게시판 → 사업장별 최근 동향 한 줄 (지도 라벨 "한남3 · 이주" 용, 아실 desc 방식)   */
+/* ------------------------------------------------------------------ */
+const NOTE_KW = [
+  [/시공(자|사)\s*선정/, "시공사 선정"], [/이주/, "이주"], [/철거/, "철거"], [/착공/, "착공"],
+  [/입주자\s*모집|일반분양|분양공고|분양/, "분양"], [/관리처분/, "관리처분"], [/사업시행/, "사업시행인가"],
+  [/조합설립/, "조합설립"], [/추진위원회|추진위/, "추진위"], [/정비구역|정비계획/, "정비구역·계획"], [/안전진단/, "안전진단"],
+  [/총회/, "총회"], [/준공|이전고시/, "준공"], [/해산|청산/, "청산"], [/후보지/, "후보지"], [/시행자\s*지정/, "시행자 지정"],
+  [/공람|열람/, "공람"], [/수의계약|입찰/, "입찰"],
+];
+function noteKeyword(title) {
+  for (const [re, kw] of NOTE_KW) if (re.test(title)) return kw;
+  return null;
+}
+
+async function fetchCleanupBoardPage(page) {
+  const u = new URL("https://cleanup.seoul.go.kr/cleanup/bbs/lscr.do");
+  u.search = new URLSearchParams({ bbsClCode: "100", cpage: String(page), pageSize: "300" }).toString();
+  const html = await (await fetch(u, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30000) })).text();
+  const out = [];
+  for (const m of html.matchAll(/<li>\s*<a href="([^"]*bbs\.bbsSn=(\d+))"[\s\S]*?<\/li>/g)) {
+    const block = m[0];
+    const title = (block.match(/<h3 class="b-tit">([\s\S]*?)<\/h3>/)?.[1] ?? "").replace(/<[^>]+>/g, "").trim();
+    const spans = [...block.matchAll(/<span>([^<]*)<\/span>/g)].map((x) => x[1].trim());
+    const pick = (label) => spans.find((s) => s.startsWith(label))?.split(":")[1]?.trim() ?? "";
+    if (!title) continue;
+    out.push({ date: pick("등록일"), title, url: `https://cleanup.seoul.go.kr/cleanup/bbs/vscr.do?cpage=1&bbsClCode=100&bbs.bbsSn=${m[2]}` });
+  }
+  return out;
+}
+
+/** 정보몽땅 고시/공고 최근 600건 (하루 캐시). 실패하면 이전 캐시, 그것도 없으면 빈 배열 */
+async function fetchCleanupBoard() {
+  const cache = path.join(RAW, "cleanup-board.json");
+  const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < 1000 * 60 * 60 * 24;
+  if (fresh && !process.env.FORCE) return JSON.parse(fs.readFileSync(cache, "utf8"));
+  try {
+    const p1 = await fetchCleanupBoardPage(1);
+    const p2 = p1.length >= 300 ? await fetchCleanupBoardPage(31).catch(() => []) : [];
+    const seen = new Set();
+    const out = [...p1, ...p2].filter((x) => !seen.has(x.url) && seen.add(x.url));
+    if (out.length) fs.writeFileSync(cache, JSON.stringify(out));
+    console.log(`· 정보몽땅 고시/공고 ${out.length}건 (최근 동향용)`);
+    return out;
+  } catch (e) {
+    console.warn("  정보몽땅 게시판 실패:", e.message.slice(0, 60));
+    return fs.existsSync(cache) ? JSON.parse(fs.readFileSync(cache, "utf8")) : [];
+  }
+}
+
+/** 사업장의 최근 동향: 서울은 게시판에서 구역명이 들어간 최신 글, 경기는 추진현황의 최신 인가 일자 */
+function noteFor(p, board) {
+  if (p.sido === "경기") {
+    let best = null;
+    for (const [k, v] of p.extra ?? []) {
+      const dates = String(v).match(/\d{4}-\d{2}-\d{2}/g);
+      if (!dates || /담당|조합원|소유자|용적률/.test(k)) continue;
+      const d = dates[dates.length - 1];
+      if (!best || d > best.date) best = { date: d, kw: k, src: "경기도" };
+    }
+    return best;
+  }
+  if (p.sido !== "서울" || !board.length) return null;
+  const key = normName(p.name);
+  if (key.length < 2) return null;
+  let best = null;
+  for (const b of board) {
+    if (!b.date || !containsToken(normName(b.title), key)) continue;
+    if (!best || b.date > best.date) best = b;
+  }
+  return best ? { date: best.date, kw: noteKeyword(best.title) ?? "공고", title: best.title, url: best.url, src: "정보몽땅" } : null;
+}
+
 async function fetchCleanupList() {
   const cache = path.join(RAW, "cleanup-list.json");
   const maxAge = 1000 * 60 * 60 * 24 * 3;
@@ -916,7 +1100,7 @@ async function markBuiltZones(zones, projects, prevZones) {
   const linked = new Set(projects.filter((p) => p.zoneFid).map((p) => p.zoneFid));
   const cands = zones.filter((z) => {
     const zp = z.properties;
-    if (zp.src === "parcel" || linked.has(zp.fid) || UMBRELLA_CODE.test(zp.code)) return false;
+    if (zp.src === "parcel" || zp.src === "special" || linked.has(zp.fid) || UMBRELLA_CODE.test(zp.code)) return false;
     const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
     return y >= 2010; // 그 이전 고시는 앱에서 이미 '과거 구역'
   });
@@ -1024,6 +1208,7 @@ async function main() {
   if (!list.length) throw new Error("사업장 자료를 하나도 얻지 못함");
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
   seedGeoCacheFromPrevious();
+  const board = await fetchCleanupBoard();
 
   const projects = [];
   let stat = { geo: 0, place: 0, emd: 0, byMap: 0, byPoint: 0, byName: 0, zoneLoc: 0, none: 0 };
@@ -1148,10 +1333,13 @@ async function main() {
       zoneId: zone?.properties.id ?? null,
       zoneFid: zone?.properties.fid ?? null,
       zoneHow: how,
+      note: noteFor(p, board),
     });
   }
   fs.writeFileSync(geoCachePath, JSON.stringify(geoCache));
 
+  /* ---- 정비구역이 없는 사업장: 지구단위계획 특별계획구역 경계 (압구정 3~5구역 등) ---- */
+  linkSpecialZones(projects, zones, await buildSpecialZones(), prevZones);
   /* ---- 사업장 미연결 구역: 신축 건물로 완공 판별 ---- */
   await markBuiltZones(zones, projects, prevZones);
   /* ---- 정비구역 폴리곤이 없는 재건축 단지는 대표지번 필지 경계로 ---- */
@@ -1253,7 +1441,7 @@ async function main() {
 function diffAgainstPrevious(zones, projects, prevZ) {
   const prevP = readJson(path.join(OUT, "projects.json"));
   // 필지 경계(src parcel)는 사업장에 딸린 보조 도형이라 구역 변경 비교에서 뺀다
-  const isZone = (f) => f.properties?.src !== "parcel";
+  const isZone = (f) => f.properties?.src !== "parcel" && f.properties?.src !== "special";
   zones = zones.filter(isZone);
   if (prevZ?.features) prevZ = { ...prevZ, features: prevZ.features.filter(isZone) };
   const logPath = path.join(OUT, "changes.json");

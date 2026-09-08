@@ -5,7 +5,7 @@ import type { ChangeLog, DataMeta, Project, RecentItem, Selection, Sido, ZoneCol
 import UpdatesPanel from "./UpdatesPanel";
 import {
   CATEGORY_COLOR, CATEGORY_ORDER, KIND_LIST, OLD_ZONE_YEAR, PHASE_COLOR, PHASE_DESC, PHASE_ORDER, PHASE_STAGES, SIDO_LIST, STAGE_COLOR, STAGE_DESC,
-  TAG_LIST, kindMatches, kindShort, normName, phaseOf, projectTags, stageGroup, zoneCategory, zoneStatus, zoneYear,
+  TAG_LIST, kindMatches, kindShort, normName, phaseOf, projectTags, shortLabel, stageGroup, zoneCategory, zoneStatus, zoneYear,
   type Phase, type StageGroup, type Tag, type ZoneCategory, type ZoneStatus,
 } from "@/lib/zones";
 import DetailPanel from "./DetailPanel";
@@ -237,21 +237,36 @@ export default function MapApp() {
     for (const [fid, st] of zoneStatusByFid) if (st === "완공" || st === "과거") s.add(fid);
     return s;
   }, [zoneStatusByFid]);
-  /* 폴리곤 툴팁 둘째 줄: 연결 사업장의 구분·단계, 없으면 결정고시 연도 */
-  const zoneSub = useMemo(() => {
-    const m = new Map<string, string>();
+  /* 사업장 동향 한 줄: 빌드 시 뽑은 최근 고시·공고 키워드(있으면), 없으면 진행단계 */
+  const descOf = (p: Project) => p.note?.kw ?? (p.stage || "단계 미기재");
+  /* 폴리곤 툴팁 둘째 줄 + 확대 시 라벨([짧은 이름, 동향]) */
+  const { zoneSub, zoneLabel } = useMemo(() => {
+    const sub = new Map<string, string>();
+    const label = new Map<string, [string, string]>();
     for (const f of zones?.features ?? []) {
       const fp = f.properties;
       const linked = projectsByZoneFid.get(fp.fid) ?? [];
       const shown = linked.filter((p) => filteredNoSet.has(p.no));
       const pick = shown[0] ?? linked[0];
       const y = zoneYear(fp.ntfc);
-      if (pick) m.set(fp.fid, `${kindShort(pick.kind)} · ${pick.stage || "단계 미기재"}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
-      else if (fp.built) m.set(fp.fid, `${y ? `결정고시 ${y} · ` : ""}준공 추정 (신축 고층 ${fp.builtN ?? ""}동)`);
-      else m.set(fp.fid, `${y ? `결정고시 ${y}` : "고시일 미상"}${zoneStatusByFid.get(fp.fid) === "과거" ? " · 과거 구역" : " · 사업장 미연결"}`);
+      if (pick) {
+        sub.set(fp.fid, `${kindShort(pick.kind)} · ${pick.stage || "단계 미기재"}${linked.length > 1 ? ` 외 ${linked.length - 1}건` : ""}`);
+        label.set(fp.fid, [shortLabel(pick.name), descOf(pick)]);
+      } else if (fp.built) {
+        sub.set(fp.fid, `${y ? `결정고시 ${y} · ` : ""}준공 추정 (신축 고층 ${fp.builtN ?? ""}동)`);
+        label.set(fp.fid, [shortLabel(fp.name), "준공 추정"]);
+      } else {
+        sub.set(fp.fid, `${y ? `결정고시 ${y}` : "고시일 미상"}${zoneStatusByFid.get(fp.fid) === "과거" ? " · 과거 구역" : " · 사업장 미연결"}`);
+        label.set(fp.fid, [shortLabel(fp.name), y ? `고시 ${y}` : ""]);
+      }
     }
-    return m;
+    return { zoneSub: sub, zoneLabel: label };
   }, [zones, projectsByZoneFid, filteredNoSet, zoneStatusByFid]);
+  const projectLabel = useMemo(() => {
+    const m = new Map<number, [string, string]>();
+    for (const p of filteredProjects) m.set(p.no, [shortLabel(p.name), descOf(p)]);
+    return m;
+  }, [filteredProjects]);
 
   const listProjects = useMemo(() => {
     const arr = [...filteredProjects];
@@ -532,6 +547,8 @@ export default function MapApp() {
           showMarkers={showMarkers}
           dimFids={dimFids}
           zoneSub={zoneSub}
+          zoneLabel={zoneLabel}
+          projectLabel={projectLabel}
           selected={sel}
           selectedZoneFid={selZone?.properties.fid ?? null}
           base={base}
@@ -703,7 +720,7 @@ function Legend() {
         ))}
       </div>
       <p className="mt-1 text-[10px] leading-snug text-gray-400">
-        원 마커 = 사업장 위치(확대하면 경계가 있는 곳은 경계만 보임) · 실선 면 = 정비구역 경계 · 점선 면 = 정비구역 미지정 재건축 단지의 대표지번 필지. 완공·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김.
+        원 마커 = 사업장 위치(확대하면 경계가 있는 곳은 경계만 보임) · 실선 면 = 정비구역 경계 · 점선 면 = 정비구역 미지정 단지의 특별계획구역(긴 점선)·대표지번 필지(짧은 점선). 확대하면 구역마다 이름·최근 동향 라벨. 완공·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김.
       </p>
     </div>
   );

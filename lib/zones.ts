@@ -262,6 +262,28 @@ export function normName(s: string | null | undefined) {
     .toLowerCase();
 }
 
+/**
+ * 지도 라벨용 짧은 이름 (아실 'sTitle' 방식): "한남 제3재정비촉진구역 주택재개발정비사업 조합" → "한남3",
+ * "압구정아파트지구 특별계획구역③ 재건축정비사업 조합" → "압구정 특별계획3", "개포주공4단지아파트 재건축정비사업 조합" → "개포주공4단지"
+ */
+const LABEL_STRIP =
+  /주택재건축정비사업조합설립추진위원회|조합설립추진위원회|조합설립추진위|추진위원회|정비사업조합|정비사업|재건축사업|재개발사업|주택재건축|주택재개발|재정비촉진구역|재정비촉진지구|촉진구역|도시환경정비|도시정비형|주택정비형|재개발정비|재건축정비|정비구역|정비계획|정비예정구역|예정구역|공공재개발|공공재건축|장기전세주택|역세권|재건축|재개발|사업|조합|일대|일원|번지|아파트지구|아파트|구역|지구/g;
+export function shortLabel(name: string | null | undefined, max = 14) {
+  let s = (name ?? "")
+    .replace(/[①-⑳]/g, (c) => String(CIRCLED.indexOf(c) + 1))
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, " ")
+    .replace(/^\s*\d+\.\s*/, "")
+    .replace(/신속통합기획/g, "신통")
+    .replace(/제(?=\d)/g, "")
+    .replace(LABEL_STRIP, " ")
+    .replace(/\s+/g, " ")
+    .replace(/(\S) (\d)/g, "$1$2")
+    .replace(/[·,]\s*$/, "")
+    .trim();
+  if (!s) s = (name ?? "").trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
 /** 고시 검색용 키워드: 정규화 이름 + "단지/차" 를 뗀 짧은 형태 */
 export function nameKeywords(...names: (string | null | undefined)[]) {
   const out = new Set<string>();

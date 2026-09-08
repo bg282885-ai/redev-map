@@ -169,10 +169,22 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
                 : ""}
             {project && zp && project.zoneHow && (
               <span className="ml-1 text-gray-400">
-                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
+                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : project.zoneHow === "special" ? "경계: 지구단위계획 특별계획구역 (정비구역 미지정)" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
               </span>
             )}
           </p>
+          {project?.note && (
+            <p className="mt-0.5 text-xs text-emerald-700" title={project.note.title ?? ""}>
+              최근 동향: <span className="font-semibold">{project.note.kw}</span> · {project.note.date.slice(0, 7)}
+              {project.note.url ? (
+                <a href={project.note.url} target="_blank" rel="noreferrer" className="ml-1 text-gray-400 underline hover:text-brand">
+                  {project.note.src} 공고
+                </a>
+              ) : (
+                <span className="ml-1 text-gray-400">({project.note.src} 추진현황)</span>
+              )}
+            </p>
+          )}
         </div>
         <button onClick={onFocus} className="btn !px-2" title="지도에서 보기" aria-label="지도에서 보기">
           ◎
@@ -254,7 +266,17 @@ export default function DetailPanel({ sel, zone, project, zoneProjects, onClose,
             </p>
           </Card>
         )}
-        {zp && zp.src !== "parcel" && (
+        {zp && zp.src === "special" && (
+          <Card title="특별계획구역 경계 (지구단위계획)">
+            <Row k="구역명" v={zp.name || "-"} />
+            <Row k="면적" v={fmtArea(zp.area)} />
+            <Row k="결정고시" v={ntfcDate(zp.ntfc) ? `${ntfcDate(zp.ntfc)} (${zp.ntfc})` : zp.ntfc || "-"} />
+            <p className="mt-1 text-[11px] text-gray-400">
+              정비구역이 아직 지정되지 않은 단지입니다. 표시한 경계는 서울시 지구단위계획구역(특별계획구역) 공간정보(열린데이터광장 OA-21164)의 특별계획구역이며, 앞으로 결정될 정비구역과 다를 수 있습니다.
+            </p>
+          </Card>
+        )}
+        {zp && zp.src !== "parcel" && zp.src !== "special" && (
           <Card title="정비구역" onTitleClick={sel.type === "project" ? () => onSelectZone(zp.fid) : undefined}>
             <Row k="구역명" v={zp.name || "-"} />
             <Row k="유형" v={codeLabel(zp.code)} />
