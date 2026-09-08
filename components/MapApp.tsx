@@ -126,6 +126,7 @@ export default function MapApp() {
           p.map((x) => {
             const s = x.stage || "단계 미기재";
             if (DONE.test(x.stage ?? "")) return x;
+            if (x.useApr) return { ...x, stage: `${s} · 준공(사용승인 ${x.useApr.date.slice(0, 7)})` };
             if (x.built) return { ...x, stage: `${s} · 준공(건물 확인)` };
             if (x.doneBy === "정보마당") return { ...x, stage: `${s} · 준공 추정(서울시 착공 현황에 없음)` };
             if (x.stale) return { ...x, stage: `${s} · 옛 기록(통합 후 해산)` };

@@ -30,6 +30,7 @@ jobs:
         env:
           VWORLD_API_KEY: ${{ secrets.VWORLD_API_KEY }}
           VWORLD_DOMAIN: ${{ secrets.VWORLD_DOMAIN }}
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
           FORCE: "1"
         run: npm run build:data
       - name: 변경 커밋

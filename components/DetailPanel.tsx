@@ -203,7 +203,15 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               으로 사업이 끝났는데 정보몽땅에 이 기록이 갱신되지 않고 남아 있어 완공으로 분류했습니다.
             </p>
           )}
-          {project?.doneBy === "정보마당" && (
+          {project?.useApr && (
+            <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800">
+              건축물대장에서 준공이 확인됐습니다: <span className="font-semibold">{project.useApr.name || "새 공동주택"}</span> 사용승인 {project.useApr.date}
+              {project.useApr.units ? ` · ${project.useApr.units.toLocaleString()}세대` : ""}
+              {project.useApr.dongs ? ` ${project.useApr.dongs}동` : ""}. 정보몽땅 단계는 &apos;{project.stage.split(" · ")[0]}&apos;에 머물러 있어 완공으로 분류했습니다.
+              <span className="ml-1 text-emerald-600">(국토부 건축HUB 총괄표제부)</span>
+            </p>
+          )}
+          {project?.doneBy === "정보마당" && !project.useApr && (
             <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
               정보몽땅 단계는 &apos;{project.stage.split(" · ")[0]}&apos;이지만, 서울시가 반기마다 내는 착공 중 구역 목록(서울주택정보마당 관리처분-착공 현황)과 이주완료 목록에 이 구역이 없어
               준공된 것으로 보고 완공으로 분류했습니다.
