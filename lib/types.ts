@@ -59,6 +59,12 @@ export type Project = {
   built?: boolean;
   /** 통합 재건축 등으로 다른 기록에 흡수된 뒤 정보몽땅에 갱신되지 않고 남은 옛 기록 — 값은 같은 현장의 완료 기록 no. 앱은 완공으로 다룬다 */
   stale?: number;
+  /** 서울주택정보마당 '관리처분-착공 현황'의 착공 목록에 있는 구역 — 착공일·사업유형·공급세대 (반기 갱신) */
+  cons?: { date: string; type?: string; units?: string };
+  /** 서울주택정보마당 이주완료 구역 목록에 있음 (아직 착공 전) */
+  moved?: boolean;
+  /** 정보몽땅 단계는 착공·분양인데 서울시 착공 중 목록(정보마당)에도 이주완료 목록에도 없어 준공된 것으로 추정 — 앱은 완공으로 다룬다 */
+  doneBy?: "정보마당";
   /** 원문 위치 표기 (경기·인천 자료의 '위치' 열) */
   loc?: string;
   /** 구역 면적 ㎡ (경기·인천 자료) */
@@ -96,7 +102,7 @@ export type DataMeta = {
   projects: number;
   shp: string;
   /** 출처별 자료 기준 (파일명·수집일) */
-  sources?: { seoulShp?: string; cleanup?: string; gyeonggi?: string; incheon?: string; vworld?: string };
+  sources?: { seoulShp?: string; cleanup?: string; gyeonggi?: string; incheon?: string; vworld?: string; housinginfo?: string };
   /** 이번 빌드에서 기록된 변경 건수 */
   changes?: number;
 };

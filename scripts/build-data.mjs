@@ -1283,8 +1283,8 @@ async function markBuiltZones(zones, projects, prevZones) {
     if (UMBRELLA_CODE.test(zp.code) || zp.dupOf) return false;
     const linked = byFid.get(zp.fid);
     if (linked) {
-      const live = linked.filter((p) => !p.stale); // 통합 전 옛 기록은 빼고 본다
-      if (!live.length) return false; // 옛 기록만 연결된 구역은 앱에서 이미 완공
+      const live = linked.filter((p) => !p.stale && !p.doneBy); // 통합 전 옛 기록·준공 추정 기록은 빼고 본다
+      if (!live.length) return false; // 그런 기록만 연결된 구역은 앱에서 이미 완공
       // 연결 사업장이 모두 후기 단계면 준공됐는지 본다 (2026-09-08 확인: 행당7·이문3·방배5·도곡삼호 등 10곳이 단계만 옛 값)
       return live.every((p) => LATE_STAGE(p.stage)) && (zp.area ?? 0) < 300000;
     }
@@ -1317,7 +1317,7 @@ async function markBuiltZones(zones, projects, prevZones) {
       kept++;
     }
     // 후기 단계 사업장이 연결된 구역이 준공으로 판별되면 그 사업장도 완료로 (앱에서 단계 뒤에 "준공(건물 확인)" 을 붙여 완공으로 분류)
-    const linked = (byFid.get(z.properties.fid) ?? []).filter((p) => !p.stale);
+    const linked = (byFid.get(z.properties.fid) ?? []).filter((p) => !p.stale && !p.doneBy);
     if (linked.length) {
       const done = z.properties.built === true || (r === undefined && linked.some((p) => prevProjBuilt.has(p.no)));
       if (done) for (const p of linked) if (!p.built) { p.built = true; projDone++; }
@@ -1590,6 +1590,8 @@ async function main() {
   if (remapped) console.log(`  중복 도형에 연결된 사업장 ${remapped}건을 대표 도형으로 이동`);
   /* ---- 통합 전 옛 기록(정보몽땅에 남은 것) 표시 → 앱은 완공으로 ---- */
   markStaleRecords(projects, dupOf);
+  /* ---- 서울시 착공 중·이주완료 구역 목록(서울주택정보마당)으로 단계 보정, 목록에 없는 착공·분양 기록은 준공 추정 ---- */
+  applyHousingInfo(projects, await fetchHousingInfo());
 
   /* ---- 정비구역이 없는 사업장: 지구단위계획 특별계획구역 경계 (압구정 3~5구역 등) ---- */
   linkSpecialZones(projects, zones, await buildSpecialZones(), prevZones);
@@ -1618,6 +1620,7 @@ async function main() {
         gyeonggi: SOURCE_INFO.gyeonggi,
         incheon: SOURCE_INFO.incheon,
         vworld: extraZones.length ? new Date().toISOString().slice(0, 10) : "",
+        housinginfo: SOURCE_INFO.housinginfo ?? "",
       },
       changes: changes.added,
     }),
@@ -1899,10 +1902,10 @@ function staleNameRelation(p, q) {
 }
 function markStaleRecords(projects, dupOf) {
   const groupKey = (fid) => dupOf.get(fid) ?? fid;
-  const done = projects.filter((p) => p.source === "정보몽땅" && (DONE_STAGE(p.stage) || p.built));
+  const done = projects.filter((p) => p.source === "정보몽땅" && (DONE_STAGE(p.stage) || p.built || p.doneBy));
   let n = 0;
   for (const p of projects) {
-    if (p.stale || p.source !== "정보몽땅" || p.built || !EARLY_STAGE(p.stage) || kindClass(p.kind) === "none") continue;
+    if (p.stale || p.source !== "정보몽땅" || p.built || p.doneBy || !EARLY_STAGE(p.stage) || kindClass(p.kind) === "none") continue;
     for (const q of done) {
       if (q === p || kindClass(q.kind) !== kindClass(p.kind)) continue;
       const sameGroup = p.zoneFid && q.zoneFid && groupKey(p.zoneFid) === groupKey(q.zoneFid);
@@ -1916,6 +1919,113 @@ function markStaleRecords(projects, dupOf) {
   }
   if (n) console.log(`· 통합 전 옛 기록 ${n}건 표시(stale)`);
   return n;
+}
+
+/* ------------------------------------------------------------------ */
+/*  서울주택정보마당(housinginfo.seoul.go.kr) 관리처분-착공 현황 (2026-09-08 "준공됐는데 진행 중으로 보임" 조사)          */
+/*  정보몽땅은 조합이 단계를 갱신하지 않으면 준공 뒤에도 '착공'으로 남고(동작1·개포주공1·장위4·홍은13·신사1·봉천4-1-2),   */
+/*  V-World 건물통합정보(LT_C_BLDGINFO)는 수년 늦어(공덕1·개포주공1 자리에 철거된 옛 건물이 그대로) 최근 준공을 못 잡는다.  */
+/*  서울시가 반기마다 내는 '착공 중 구역' 목록(착공일자·사업유형·세대수, 60여 곳)과 '이주완료 구역' 목록(29곳)을 받아      */
+/*   - 착공 목록에 있으면 cons(착공일·유형·공급세대) → 앱은 관리처분 단계 기록도 착공으로 표시                            */
+/*   - 이주완료 목록에 있으면 moved                                                                                  */
+/*   - 정보몽땅 단계가 '착공'(도정법 사업)인데 두 목록에 다 없으면 준공 추정 doneBy='정보마당' → 앱은 완공                 */
+/*  목록의 절반쯤(중구 도심 도시정비형 등 시행자 방식)은 정보몽땅에 없는 사업이라 매칭 안 되는 목록 행은 그냥 넘긴다.       */
+/*  주의: 착공 목록에 남아 있어도 입주가 끝난 곳이 있을 수 있다(준공인가가 입주보다 늦음) — 그런 곳은 건물 판별(built)에 맡김 */
+/* ------------------------------------------------------------------ */
+const HOUSINGINFO_URL = "https://housinginfo.seoul.go.kr/hmpg/mabu/prst/cons/consDetail.do";
+async function fetchHousingInfo() {
+  const cache = path.join(RAW, "housinginfo.json");
+  const fresh = fs.existsSync(cache) && Date.now() - fs.statSync(cache).mtimeMs < 1000 * 60 * 60 * 24 * 7;
+  if (fresh && !process.env.FORCE) return JSON.parse(fs.readFileSync(cache, "utf8"));
+  try {
+    const html = await (await fetch(HOUSINGINFO_URL, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30000) })).text();
+    const tables = [...html.matchAll(/<table[\s\S]*?<\/table>/g)].map((m) => m[0]);
+    const rowsOf = (t) =>
+      [...t.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((r) => [...r[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((c) => c[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim()));
+    const consT = tables.find((t) => /착공일자/.test(t));
+    const movedT = tables.find((t) => {
+      const h = rowsOf(t)[0] ?? [];
+      return h.length === 3 && h[2] === "구역명";
+    });
+    const cons = consT
+      ? rowsOf(consT).slice(1).filter((r) => r.length >= 4 && /^\d{4}-\d{2}-\d{2}$/.test(r[1])).map((r) => ({ date: r[1], gu: r[2], name: r[3], type: r[5] ?? "", units: r[7] ?? "" }))
+      : [];
+    const moved = movedT ? rowsOf(movedT).slice(1).filter((r) => r.length >= 3).map((r) => ({ gu: r[1], name: r[2] })) : [];
+    if (!cons.length) throw new Error("착공 목록을 찾지 못함");
+    const out = { fetchedAt: new Date().toISOString().slice(0, 10), cons, moved };
+    fs.writeFileSync(cache, JSON.stringify(out));
+    console.log(`· 서울주택정보마당 착공 중 ${cons.length}곳 · 이주완료 ${moved.length}곳`);
+    return out;
+  } catch (e) {
+    console.warn("  서울주택정보마당 실패:", e.message.slice(0, 60));
+    return fs.existsSync(cache) ? JSON.parse(fs.readFileSync(cache, "utf8")) : null;
+  }
+}
+/** 이름 변형들: 괄호 제거 / 괄호를 공백으로(반포아파트(제3주구) → 반포3주구) / 괄호 안 항목 / "문래동진주" → "문래진주" */
+function nameVariants(raw) {
+  const inner = raw.match(/\(([^)]*)\)/)?.[1]?.split(/[,·]/) ?? [];
+  return [...new Set([raw, raw.replace(/\([^)]*\)/g, ""), raw.replace(/[()]/g, " "), raw.replace(/([가-힣]{2,})동(?=[가-힣])/, "$1"), ...inner].map(normName).filter((v) => v.length >= 2))];
+}
+/** 정보마당 구역명 ↔ 정보몽땅 사업장(같은 자치구): 가장 잘 맞는 하나. 짧은 쪽이 2글자면 완전 일치만(신반포22차 ⊃ "반포" 같은 오매칭 방지) */
+/** 괄호 안 내용만 정규화 ("반포아파트(제3주구)" → "3주구"). normName 은 괄호를 통째로 지우므로 먼저 벗긴다 */
+const innerOf = (raw) => normName((raw.match(/\(([^)]*)\)/g) ?? []).map((s) => s.slice(1, -1)).join(" "));
+function bestHousingMatch(row, projects) {
+  const rv = nameVariants(row.name);
+  const ri = innerOf(row.name);
+  let best = null, bestScore = 0;
+  for (const p of projects) {
+    if (p.gu !== row.gu) continue;
+    let s = 0;
+    for (const pv of nameVariants(p.name)) {
+      for (const v of rv) {
+        if (digitsConflict(pv, v)) continue;
+        if (pv === v) s = Math.max(s, 1);
+        else if (Math.min(pv.length, v.length) >= 3 && (containsToken(pv, v) || containsToken(v, pv))) s = Math.max(s, Math.min(pv.length, v.length) / Math.max(pv.length, v.length));
+      }
+    }
+    if (s < 0.5) continue;
+    // 괄호 안 구분("반포주공1단지(3주구)" ↔ "반포아파트(제3주구)" / "(1,2,4주구)")이 같으면 가산, 숫자가 다르면 감점
+    const pi = innerOf(p.name);
+    if (ri && pi) s += ri === pi ? 0.5 : digitsConflict(ri, pi) ? -0.5 : 0;
+    // 동점이면 완료된 옛 기록보다 진행 기록, 초기 단계보다 후기 단계 기록을 고른다 (연희1 해산/착공, 장미아파트 추진위/착공)
+    if (DONE_STAGE(p.stage)) s -= 0.3;
+    if (/관리처분|이주|철거|착공|분양/.test(p.stage ?? "")) s += 0.1;
+    if (s > bestScore) {
+      bestScore = s;
+      best = p;
+    }
+  }
+  return best;
+}
+function applyHousingInfo(projects, info) {
+  if (!info?.cons?.length) return;
+  const seoul = projects.filter((p) => p.source === "정보몽땅");
+  let cons = 0, moved = 0, done = 0;
+  for (const row of info.cons) {
+    const p = bestHousingMatch(row, seoul);
+    if (p && !p.cons) {
+      p.cons = { date: row.date, type: row.type || undefined, units: row.units || undefined };
+      cons++;
+    }
+  }
+  for (const row of info.moved ?? []) {
+    const p = bestHousingMatch(row, seoul);
+    if (p) {
+      p.moved = true;
+      moved++;
+    }
+  }
+  // '분양'은 조합원 분양신청(착공 전) 단계에도 쓰여 착공 근거가 못 된다 (미아3구역: 분양인데 2027 착공 예정) → '착공'만
+  const SMALL = /소규모|가로주택|자율주택|지역주택|리모델링|모아/;
+  for (const p of seoul) {
+    if (p.cons || p.moved || p.built || p.stale || p.doneBy) continue;
+    if (!/착공/.test(p.stage ?? "") || DONE_STAGE(p.stage) || SMALL.test(`${p.kind} ${p.name}`)) continue;
+    p.doneBy = "정보마당";
+    done++;
+    console.log(`  준공 추정(서울시 착공 목록에 없음): ${p.gu} ${p.name} [${p.stage}]`);
+  }
+  SOURCE_INFO.housinginfo = info.fetchedAt;
+  console.log(`· 정보마당 반영: 착공 ${cons}건, 이주완료 ${moved}건, 준공 추정 ${done}건`);
 }
 
 function pickBest(cands, pn, loc) {

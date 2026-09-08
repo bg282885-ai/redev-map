@@ -203,6 +203,21 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               으로 사업이 끝났는데 정보몽땅에 이 기록이 갱신되지 않고 남아 있어 완공으로 분류했습니다.
             </p>
           )}
+          {project?.doneBy === "정보마당" && (
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
+              정보몽땅 단계는 &apos;{project.stage.split(" · ")[0]}&apos;이지만, 서울시가 반기마다 내는 착공 중 구역 목록(서울주택정보마당 관리처분-착공 현황)과 이주완료 목록에 이 구역이 없어
+              준공된 것으로 보고 완공으로 분류했습니다.
+            </p>
+          )}
+          {project?.cons && (
+            <p className="mt-0.5 text-xs text-gray-500">
+              서울시 착공 현황: <span className="font-semibold text-gray-700">{project.cons.date} 착공</span>
+              {project.cons.type ? ` · ${project.cons.type}` : ""}
+              {project.cons.units ? ` · 공급 ${project.cons.units}세대` : ""}
+              <span className="ml-1 text-gray-400">(서울주택정보마당)</span>
+            </p>
+          )}
+          {project?.moved && !project.cons && <p className="mt-0.5 text-xs text-gray-500">서울시 이주완료 구역 목록에 있습니다 (서울주택정보마당, 착공 전).</p>}
         </div>
         <button onClick={onFocus} className="btn !px-2" title="지도에서 보기" aria-label="지도에서 보기">
           ◎

@@ -118,13 +118,19 @@ export default function MapApp() {
           }),
         };
         setZones(z);
-        // 건물 자료로 준공이 확인된 사업장, 통합 뒤 정보몽땅에 남은 옛 기록은 단계 뒤에 표시를 붙여 완공(완료)으로 분류 (자료 원문 단계는 그대로 두고 표시만)
+        // 원자료(정보몽땅) 단계가 현실보다 늦는 경우를 다른 근거로 보정해 단계 뒤에 표시를 붙인다 (원문 단계는 그대로 두고 표시만):
+        //  건물 자료로 준공 확인(built) / 서울시 착공 중 목록에 없음(doneBy) / 통합 뒤 남은 옛 기록(stale) → 완공,
+        //  서울시 착공 목록에 있으면 착공(cons), 이주완료 목록에 있으면 이주완료(moved)
         const DONE = /준공|청산|해산|이전고시|입주/;
         setProjects(
           p.map((x) => {
+            const s = x.stage || "단계 미기재";
             if (DONE.test(x.stage ?? "")) return x;
-            if (x.built) return { ...x, stage: `${x.stage || "단계 미기재"} · 준공(건물 확인)` };
-            if (x.stale) return { ...x, stage: `${x.stage || "단계 미기재"} · 옛 기록(통합 후 해산)` };
+            if (x.built) return { ...x, stage: `${s} · 준공(건물 확인)` };
+            if (x.doneBy === "정보마당") return { ...x, stage: `${s} · 준공 추정(서울시 착공 현황에 없음)` };
+            if (x.stale) return { ...x, stage: `${s} · 옛 기록(통합 후 해산)` };
+            if (x.cons && !/착공|분양/.test(x.stage ?? "")) return { ...x, stage: `${s} · 착공 ${x.cons.date.slice(0, 7)}(서울시)` };
+            if (x.moved && !/이주|철거|착공|분양/.test(x.stage ?? "")) return { ...x, stage: `${s} · 이주완료(서울시)` };
             return x;
           }),
         );
