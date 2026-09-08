@@ -25,8 +25,9 @@ export const cleanupPost = (sn: string) => `${CLEANUP}/cleanup/bbs/vscr.do?cpage
 /** 서울 도시계획포털 지도 팝업 (결정고시 관리코드) */
 export const urbanMap = (recordCode: string) => `${URBAN}/view/map/mapPopup.html?recordCode=${enc(recordCode)}`;
 
-/** 서울플랜+ (도시계획포털 도시계획사업 현황) 모아타운 목록·지도 */
-export const seoulPlanMoatown = () => `${URBAN}/view/html/PMNU1100000001?bsnsCd=BZ201`;
+/** 서울플랜+ (도시계획포털 도시계획사업 현황) 사업유형별 목록·지도 (bsnsCd = BZ201 모아타운, BZ101 신속통합기획 …) */
+export const seoulPlan = (bsnsCd = "BZ201") => `${URBAN}/view/html/PMNU1100000001?bsnsCd=${enc(bsnsCd)}`;
+export const seoulPlanMoatown = () => seoulPlan("BZ201");
 
 /** 서울 도시계획포털 결정고시 조회 */
 export const urbanGosiSearch = () => `${URBAN}/view/html/PMNU4030100001`;

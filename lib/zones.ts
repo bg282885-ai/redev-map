@@ -28,14 +28,40 @@ export const CODE_LABEL: Record<string, string> = {
   UQ5130: "고밀복합형 재정비촉진지구",
   UQ5140: "존치정비구역",
   UQ5150: "존치관리구역",
-  /** 서울플랜+(도시계획포털 도시계획사업 현황) 모아타운 도형 — 소규모주택정비 관리지역·대상지 */
+  /** 서울플랜+(도시계획포털 도시계획사업 현황) 도시계획사업 도형 — 사업유형 코드 BZxxx (SHP 정비구역과 같은 도형은 SHP 를 쓰고, 없는 곳만 이 코드) */
+  BZ101: "신속통합기획 대상지",
+  BZ102: "재개발(도시정비형) 사업구역",
+  BZ103: "재개발(주택정비형) 사업구역",
+  BZ104: "재건축(단독) 사업구역",
+  BZ105: "재건축(공동) 사업구역",
+  BZ107: "주거환경개선(관리형) 구역",
+  BZ108: "주거환경개선(정비형) 구역",
   BZ201: "모아타운(소규모주택정비 관리지역)",
+  BZ202: "가로주택정비사업 구역",
+  BZ203: "자율주택정비사업 구역",
+  BZ204: "소규모재건축사업 구역",
+  BZ205: "소규모재개발사업 구역",
+  BZ301: "역세권 장기전세주택 사업구역",
+  BZ302: "역세권 활성화 사업구역",
+  BZ402: "재정비촉진구역(서울플랜+)",
+  BZ501: "공공주택지구",
+  BZ502: "도심 공공주택 복합사업 구역",
+  BZ601: "도시개발구역(서울플랜+)",
+  BZ602: "공동주택 리모델링 단지",
+  BZ603: "시장정비사업 구역",
 };
 
-export type ZoneCategory = "재개발" | "재건축" | "주거환경" | "촉진지구" | "도시개발" | "소규모" | "모아타운" | "기타";
+export type ZoneCategory = "재개발" | "재건축" | "주거환경" | "촉진지구" | "도시개발" | "소규모" | "모아타운" | "신통기획" | "역세권" | "리모델링" | "기타";
+
+/** 서울플랜+ 사업유형 코드(BZxxx) → 구역 유형(색) */
+const BZ_CATEGORY: Record<string, ZoneCategory> = {
+  BZ101: "신통기획", BZ102: "재개발", BZ103: "재개발", BZ104: "재건축", BZ105: "재건축", BZ107: "주거환경", BZ108: "주거환경",
+  BZ201: "모아타운", BZ202: "소규모", BZ203: "소규모", BZ204: "소규모", BZ205: "소규모",
+  BZ301: "역세권", BZ302: "역세권", BZ402: "재개발", BZ501: "도시개발", BZ502: "도시개발", BZ601: "도시개발", BZ602: "리모델링", BZ603: "기타",
+};
 
 export function zoneCategory(code: string): ZoneCategory {
-  if (code === "BZ201") return "모아타운";
+  if (code.startsWith("BZ")) return BZ_CATEGORY[code] ?? "기타";
   if (/^UQ12(2|3)/.test(code)) return "재개발";
   if (code === "UQ1240" || code === "UQ1206") return "재건축";
   if (/^UQ121/.test(code)) return "주거환경";
@@ -53,10 +79,13 @@ export const CATEGORY_COLOR: Record<ZoneCategory, string> = {
   도시개발: "#6B7280",
   소규모: "#D97706",
   모아타운: "#0D9488",
+  신통기획: "#4F46E5",
+  역세권: "#DB2777",
+  리모델링: "#A21CAF",
   기타: "#9CA3AF",
 };
 
-export const CATEGORY_ORDER: ZoneCategory[] = ["재개발", "재건축", "주거환경", "소규모", "모아타운", "촉진지구", "도시개발", "기타"];
+export const CATEGORY_ORDER: ZoneCategory[] = ["재개발", "재건축", "주거환경", "소규모", "모아타운", "신통기획", "역세권", "리모델링", "촉진지구", "도시개발", "기타"];
 
 export function codeLabel(code: string) {
   return CODE_LABEL[code] ?? code;
@@ -88,7 +117,9 @@ export function kindBase(kind: string) {
   if (/소규모재건축/.test(k)) return "소규모재건축";
   if (/소규모재개발/.test(k)) return "소규모재개발";
   if (/가로주택/.test(k)) return "가로주택정비";
+  if (/자율주택/.test(k)) return "자율주택정비";
   if (/모아타운/.test(k)) return "모아타운";
+  if (/신속통합|신통/.test(k)) return "신속통합기획";
   if (/지역주택/.test(k)) return "지역주택";
   if (/리모델링/.test(k)) return "리모델링";
   if (/주거환경/.test(k)) return "주거환경개선";
@@ -100,6 +131,9 @@ export function kindBase(kind: string) {
 /** 필터 칩 값이 사업장 유형과 맞는가 */
 export function kindMatches(chip: string, kind: string) {
   if (chip === kind) return true;
+  // 서울플랜+ 유형 묶음 칩
+  if (chip === "역세권사업") return /역세권/.test(kind ?? "");
+  if (chip === "기타 도시계획사업") return /촉진구역|공공주택지구|도시개발|시장정비/.test(kind ?? "");
   const cb = kindBase(chip), kb = kindBase(kind);
   if (cb === kb) return true;
   // "재개발(주택정비형)" 칩은 시도 자료의 단순 "재개발"도 포함
@@ -120,10 +154,10 @@ export const STAGE_COLOR: Record<StageGroup, string> = {
 };
 
 export const STAGE_DESC: Record<StageGroup, string> = {
-  계획: "정비계획 수립 · 구역지정 · 안전진단",
-  추진위: "추진위원회 승인 · 조합원 모집",
+  계획: "정비계획 수립 · 구역지정 · 안전진단 · 대상지 선정 · 위원회 심의",
+  추진위: "추진위원회 승인 · 조합원 모집 · 조합설립 추진",
   조합: "조합설립인가",
-  시행: "사업시행인가 · 심의",
+  시행: "사업시행인가 · 건축심의 · 리모델링 허가",
   관리처분: "관리처분인가",
   공사: "철거 · 착공 · 분양",
   완료: "준공 · 이전고시 · 조합해산·청산 · 대상지 취소·구역 해제",
@@ -136,8 +170,8 @@ export type Phase = "초기" | "중기" | "후기" | "완공";
 export const PHASE_ORDER: Phase[] = ["초기", "중기", "후기", "완공"];
 export const PHASE_COLOR: Record<Phase, string> = { 초기: "#F59E0B", 중기: "#E5484D", 후기: "#2F6FED", 완공: "#2AA36B" };
 export const PHASE_DESC: Record<Phase, string> = {
-  초기: "정비계획·구역지정 → 추진위원회 → 조합설립인가 (단계 미기재 포함)",
-  중기: "사업시행인가 · 심의",
+  초기: "대상지 선정·정비계획·구역지정·안전진단 → 추진위원회 → 조합설립인가 (단계 미기재 포함)",
+  중기: "사업시행인가 · 건축심의 · 리모델링 허가",
   후기: "관리처분인가 → 철거·착공·분양",
   완공: "준공 · 이전고시 · 조합해산·청산 · 취소·해제 — 기본 숨김",
 };
@@ -232,9 +266,13 @@ export const KIND_LIST = [
   "소규모재건축",
   "소규모재개발",
   "가로주택정비",
+  "자율주택정비",
   "모아타운",
+  "신속통합기획",
+  "역세권사업",
   "지역주택",
   "리모델링",
+  "기타 도시계획사업",
 ];
 
 export function kindShort(kind: string) {

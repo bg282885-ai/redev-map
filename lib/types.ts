@@ -52,8 +52,10 @@ export type Project = {
   gu: string;
   /** 시군구 코드 5자리 */
   guCode: string | null;
-  /** 자료 출처: 정보몽땅 / 경기도 / 인천시 / 1기신도시(data/newtown1.json — 국토부 선도지구·시 지정 고시 정리) */
-  source?: "정보몽땅" | "경기도" | "인천시" | "1기신도시" | "모아타운";
+  /** 자료 출처: 정보몽땅 / 경기도 / 인천시 / 1기신도시(data/newtown1.json — 국토부 선도지구·시 지정 고시 정리) / 모아타운 / 서울플랜+(도시계획포털 도시계획사업 현황, 정보몽땅에 없는 사업) */
+  source?: "정보몽땅" | "경기도" | "인천시" | "1기신도시" | "모아타운" | "서울플랜+";
+  /** 서울플랜+(서울시 도시계획사업 현황)의 같은 사업 추진단계 — 정보몽땅 기록에도 붙는다. ended = 취소·해제·중단(앱은 완공처럼 숨김) */
+  plan?: { sn: string; code?: string; type: string; stage: string; date?: string; history?: { stage: string; date: string }[]; ended?: boolean };
   /** 1기 신도시 선도지구의 구성 단지 (장소 검색어·단지명) */
   complexes?: { q: string; core: string }[];
   /** 자료의 단계는 후기(관리처분~분양)인데 구역 안 신축 고층 건물로 준공이 확인된 사업장 — 앱은 단계 뒤에 "준공(건물 확인)" 을 붙여 완공으로 다룬다 */
@@ -97,7 +99,7 @@ export type Project = {
   /** seoulplan = 서울플랜+ 모아타운 도형(출처가 도형을 함께 줌) */
   zoneHow: "map" | "point" | "name" | "parcel" | "special" | "seoulplan" | null;
   /** 최근 동향 한 줄 (빌드 시 정보몽땅 고시·공고 제목 / 경기 자료의 최신 인가일에서 뽑음) — 지도 라벨·패널 표시용 */
-  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" | "국토부·시 발표" | "도시계획포털" } | null;
+  note?: { date: string; kw: string; title?: string; url?: string; src: "정보몽땅" | "경기도" | "국토부·시 발표" | "도시계획포털" | "서울플랜+" } | null;
 };
 
 export type DataMeta = {
@@ -106,7 +108,7 @@ export type DataMeta = {
   projects: number;
   shp: string;
   /** 출처별 자료 기준 (파일명·수집일) */
-  sources?: { seoulShp?: string; cleanup?: string; gyeonggi?: string; incheon?: string; vworld?: string; housinginfo?: string; bldrgst?: string };
+  sources?: { seoulShp?: string; cleanup?: string; gyeonggi?: string; incheon?: string; vworld?: string; housinginfo?: string; bldrgst?: string; seoulplan?: string };
   /** 이번 빌드에서 기록된 변경 건수 */
   changes?: number;
 };
@@ -124,6 +126,8 @@ export type ChangeEntry = {
   fid?: string;
   from?: string;
   to?: string;
+  /** 사업장 출처 (일괄 추가 요약용) */
+  source?: string;
 };
 export type ChangeLog = { updatedAt: string; baseline?: string; entries: ChangeEntry[] };
 

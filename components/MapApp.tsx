@@ -259,7 +259,7 @@ export default function MapApp() {
   }, [zoneStatusByFid]);
   /* 사업장 동향 한 줄: 보정 결과(준공·착공 등)가 있으면 그것을 먼저, 없으면 빌드 시 뽑은 최근 고시·공고 키워드, 그것도 없으면 진행단계
      (2026-09-08: 라벨 "동작1 착공"이 후기처럼 읽히던 문제 — 원자료 단계는 패널 상세에만) */
-  const descOf = (p: Project) => (correctionOf(p) ? stageLabel(p) : p.note?.kw ?? stageLabel(p));
+  const descOf = (p: Project) => (correctionOf(p) ? stageLabel(p) : (p.note?.kw ?? stageLabel(p)).replace(/\s*\([^)]*\)/g, "")); // 라벨은 괄호 설명("(연번부여)") 생략
   /* 목록·툴팁용: "준공 2026-03 (원자료 착공)" */
   const stageText = (p: Project) => {
     const c = correctionOf(p);
@@ -751,8 +751,8 @@ function Legend() {
         <span className="font-semibold text-gray-500">● 점</span> = 사업장 대표 위치. 경계 자료가 없는 사업장(모아타운·소규모·경기·인천 대부분)은 점만 보이며, 점선 테두리 점은 대략 위치(모아타운
         대상지·지번 합병). 다른 구역 경계 안이나 가에 찍힌 점도 그 구역과는 별개 사업이다. 확대하면 경계가 있는 곳의 점은 숨김.
         <br />
-        <span className="font-semibold text-gray-500">▰ 면</span> = 경계. 실선 = 정비구역, 긴 점선 = 특별계획구역, 짧은 점선 = 대표지번 필지(정비구역 미지정 단지), 점 점선 = 모아타운 대상지·관리지역(서울플랜+).
-        완공·취소·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김. 확대하면 이름 라벨 — 둘째 항목은 보정 결과(준공·착공)나 최근 동향이며, 원자료 단계는 상세 패널에서 확인.
+        <span className="font-semibold text-gray-500">▰ 면</span> = 경계. 실선 = 정비구역, 긴 점선 = 특별계획구역, 짧은 점선 = 대표지번 필지(정비구역 미지정 단지), 점 점선 = 서울플랜+ 도시계획사업
+        도형(모아타운·신통기획 대상지·가로주택·소규모·역세권·리모델링 등, 지정 전 단계는 검토 범위). 완공·취소·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김. 확대하면 이름 라벨 — 둘째 항목은 보정 결과(준공·착공)나 최근 동향이며, 원자료 단계는 상세 패널에서 확인.
       </p>
     </div>
   );

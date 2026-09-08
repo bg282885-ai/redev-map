@@ -296,6 +296,17 @@ async function explain(p) {
     for (const q of near) console.log(`   - ${q.no} ${q.name} [${q.stage}] 이름 관계 ${yes(B.staleNameRelation(p, q))} (${B.lightName(p.name)} ↔ ${B.lightName(q.name)})`);
   });
 
+  section("⑦-2 서울플랜+ 추진단계(plan)", () => {
+    if (!p.plan) {
+      L("서울플랜+", p.source === "서울플랜+" ? "(이 기록 자체가 서울플랜+ 출처)" : "같은 사업으로 묶인 서울플랜+ 기록 없음 (도형 IoU≥0.5 또는 좌표 포함 + 유형 호환)");
+      return;
+    }
+    L("사업유형", `${p.plan.type}${p.plan.code ? ` (${p.plan.code})` : ""}`);
+    L("현재 단계", `${p.plan.stage}${p.plan.date ? ` · ${p.plan.date}` : ""}${p.plan.ended ? "  ← 취소·해제·중단 → 보정 planEnd 로 완공 처리" : ""}`);
+    L("도형 코드", p.plan.sn);
+    for (const h of p.plan.history ?? []) console.log(`     - ${h.date} ${h.stage}`);
+  });
+
   section("⑧ 최근 동향(note)", () => {
     if (!p.note) {
       L("동향", "없음 (정보몽땅 고시/공고 최근 글에 구역명 없음 / 경기 인가일 없음)");

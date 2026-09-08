@@ -179,7 +179,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 : ""}
             {project && zp && project.zoneHow && (
               <span className="ml-1 text-gray-400">
-                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : project.zoneHow === "special" ? "경계: 지구단위계획 특별계획구역 (정비구역 미지정)" : project.zoneHow === "seoulplan" ? "경계: 서울플랜+ 모아타운 대상지·관리지역" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
+                · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : project.zoneHow === "special" ? "경계: 지구단위계획 특별계획구역 (정비구역 미지정)" : project.zoneHow === "seoulplan" ? "경계: 서울플랜+ 도시계획사업 도형" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
               </span>
             )}
           </p>
@@ -188,7 +188,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               최근 동향: <span className="font-semibold">{project.note.kw}</span> · {project.note.date.slice(0, 7)}
               {project.note.url ? (
                 <a href={project.note.url} target="_blank" rel="noreferrer" className="ml-1 text-gray-400 underline hover:text-brand">
-                  {project.note.src} 공고
+                  {project.note.src === "서울플랜+" ? "서울플랜+ 사업현황" : `${project.note.src} 공고`}
                 </a>
               ) : (
                 <span className="ml-1 text-gray-400">({project.note.src} 추진현황)</span>
@@ -222,6 +222,12 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
           {project?.built && !project.useApr && (
             <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800">
               구역 안에 신축 고층 건물이 확인되어(GIS건물통합정보) 준공된 것으로 보고 완공으로 분류했습니다. 원자료 단계는 &apos;{rawStage(project.stage)}&apos;에 머물러 있습니다.
+            </p>
+          )}
+          {project?.plan?.ended && !project.useApr && !project.built && (
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
+              서울플랜+(서울시 도시계획사업 현황)에 이 사업의 추진단계가 &apos;{project.plan.stage}&apos;
+              {project.plan.date ? ` (${project.plan.date})` : ""}로 등록되어 있어 사업이 끝난 것으로 보고 완공과 함께 숨깁니다.
             </p>
           )}
           {project?.doneBy === "정보마당" && !project.useApr && (
@@ -308,7 +314,9 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                   ? "국토교통부 1기 신도시 선도지구 선정(2024-11-27)과 각 시의 특별정비구역 지정 고시·발표를 정리한 목록(노후계획도시정비특별법). 경계는 구성 단지의 대표지번 필지를 합친 것"
                   : project.source === "모아타운"
                     ? "서울플랜+(도시계획포털 도시계획사업 현황)의 모아타운 대상지·관리지역 도형과 추진단계, 소규모주택정비 관리계획(모아타운 관리계획) 승인 고시, 서울시 모아타운 대상지 현황을 합친 것. 서울플랜+에 아직 없는 최근 대상지는 대표지번 점만 표시하며, 법적 경계는 고시 원문의 지형도면"
-                    : "인천광역시 도시 및 주거환경 정비사업 추진현황(공공데이터포털, 월간)"}{" "}
+                    : project.source === "서울플랜+"
+                      ? "서울시 도시계획포털 서울플랜+ '도시계획사업 현황'(신속통합기획·가로주택·소규모재건축·역세권·리모델링 등 도시계획사업 28종 중 정비 성격 유형)에 등록된 사업으로, 정보몽땅(조합 등록) 목록에는 없는 곳. 도형·추진단계·이력은 서울시 입력값"
+                      : "인천광역시 도시 및 주거환경 정비사업 추진현황(공공데이터포털, 월간)"}{" "}
               기준.
               {project.locSrc === "geocode" ? " 마커는 위치 열의 첫 지번을 지오코딩한 지점입니다." : ""}
               {project.locSrc === "place" ? " 원자료에 위치(지번)가 없어 마커는 단지명으로 검색한 지점입니다." : ""}
@@ -337,16 +345,32 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             </p>
           </Card>
         )}
+        {project?.plan && project.source !== "서울플랜+" && (
+          <Card title="서울플랜+ 추진단계">
+            <Row k="사업유형" v={project.plan.type} />
+            <Row k="현재 단계" v={`${project.plan.stage}${project.plan.date ? ` · ${project.plan.date}` : ""}`} />
+            {(project.plan.history ?? [])
+              .filter((h) => !(h.stage === project.plan!.stage && h.date === project.plan!.date))
+              .map((h, i) => <Row key={i} k={`이력 · ${h.stage}`} v={h.date || "-"} />)}
+            <p className="mt-1 text-[11px] text-gray-400">
+              서울시 도시계획포털 서울플랜+ &apos;도시계획사업 현황&apos;에 같은 사업으로 등록된 기록의 추진단계입니다. 정보몽땅(조합 입력) 단계와 다를 수 있으며, 지도 라벨의 둘째 항목은 둘 중 더 최근 것을
+              보입니다.{" "}
+              <a href={links.seoulPlan(project.plan.code)} target="_blank" rel="noreferrer" className="underline hover:text-brand">
+                서울플랜+
+              </a>
+            </p>
+          </Card>
+        )}
         {zp && zp.src === "seoulplan" && (
-          <Card title="모아타운 구역 (서울플랜+)" onTitleClick={sel.type === "project" ? () => onSelectZone(zp.fid) : undefined}>
+          <Card title={`${codeLabel(zp.code)} (서울플랜+)`} onTitleClick={sel.type === "project" ? () => onSelectZone(zp.fid) : undefined}>
             <Row k="구역명" v={zp.name || "-"} />
             <Row k="면적" v={fmtArea(zp.area)} />
             <Row k="도형 코드" v={zp.fid} mono />
             <p className="mt-1 text-[11px] text-gray-400">
-              서울시 도시계획포털 서울플랜+ &apos;도시계획사업 현황&apos;의 모아타운 도형입니다. 관리계획이 승인(관리지역 지정)된 곳은 고시된 관리지역 경계이고, 대상지 선정·자문·심의 단계인 곳은
-              검토 범위라 승인 때 경계가 바뀔 수 있습니다. 법적 경계는 고시문의 지형도면이 기준입니다.{" "}
-              <a href={links.seoulPlanMoatown()} target="_blank" rel="noreferrer" className="underline hover:text-brand">
-                서울플랜+ 모아타운
+              서울시 도시계획포털 서울플랜+ &apos;도시계획사업 현황&apos;의 도형입니다. 구역 지정·관리계획 승인이 난 곳은 고시된 경계이고, 대상지 선정·자문·심의 단계인 곳은 검토 범위라 지정 때 경계가
+              바뀔 수 있습니다. 법적 경계는 고시문의 지형도면이 기준입니다.{" "}
+              <a href={links.seoulPlan(zp.code)} target="_blank" rel="noreferrer" className="underline hover:text-brand">
+                서울플랜+ {codeLabel(zp.code)}
               </a>
             </p>
             {zoneProjects.length > 1 && sel.type === "project" && (
