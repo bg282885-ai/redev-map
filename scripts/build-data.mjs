@@ -181,7 +181,7 @@ function linkSpecialZones(projects, zones, specials, prevZones) {
     hits.sort((a, b) => a.properties.area - b.properties.area); // 가장 작은(구체적인) 특별계획구역
     const z = hits[0];
     if (!added.has(z.properties.fid)) {
-      const code = kc === "rebuild" ? "UQ1240" : kc === "small" ? "UQ1280" : "UQ1221";
+      const code = kc === "rebuild" ? "UQ1240" : kc === "small" ? "UQ1270" : "UQ1221";
       added.set(z.properties.fid, { ...z, properties: { ...z.properties, code, gu: p.guCode ?? z.properties.gu } });
     }
     p.zoneFid = z.properties.fid;
@@ -897,6 +897,113 @@ function fetchNewtown() {
 }
 
 /**
+ * 모아타운(소규모주택정비 관리지역) — 서울 도시계획포털 결정고시 목록에서 "소규모주택정비 관리계획(모아타운 관리계획) 승인" 고시를 모아
+ * 위치별 항목으로 만들고(관리계획 승인 = 관리지역 지정), data/moatown-sites.json(서울시 대상지 현황 정리)의 아직 승인 전 대상지를 더한다.
+ * 경계 벡터는 공개된 것이 없어 마커만 (고시 원문·지형도면은 패널에서 포털 고시로 열림). 2026-09-08 추가.
+ */
+const GU_BY_CODE = Object.fromEntries(Object.entries(GU).map(([c, n]) => [c, n]));
+/** 이름이 완전히 다른 행정동 → 법정동 (관악구 등). 나머지는 숫자·'본' 만 떼면 법정동 */
+const ADM_TO_LEGAL = {
+  성현동: "봉천동", 청룡동: "봉천동", 은천동: "봉천동", 중앙동: "봉천동", 행운동: "봉천동", 낙성대동: "봉천동", 인헌동: "봉천동",
+  서원동: "신림동", 신원동: "신림동", 서림동: "신림동", 미성동: "신림동", 난곡동: "신림동", 난향동: "신림동", 조원동: "신림동", 대학동: "신림동", 신사동_관악: "신림동",
+  망우본동: "망우동", 면목본동: "면목동",
+};
+function dongLegal(d) {
+  // 행정동 → 법정동 근사: 자양1동→자양동, 면목본동→면목동, 중화1동→중화동, 신월3동→신월동, 원효로4가는 그대로
+  if (ADM_TO_LEGAL[d]) return ADM_TO_LEGAL[d];
+  return d.replace(/(본|\d+(?:·\d+)*)동$/, "동");
+}
+function parseMoaTitle(title) {
+  const t = title.replace(/\s+/g, " ").trim();
+  // "강북구 수유동1지역 (수유동 52-1번지 일대)" 처럼 괄호 안에 위치가 있으면 그것을
+  const inner = t.match(/\(([가-힣0-9\s\-·]+?(?:번지)?\s*일대)\)/)?.[1];
+  const head = (inner ?? t).replace(/^서울특별시\s+\S+구\s+/, "");
+  const m = head.match(/([가-힣]+\d*(?:동|가))\s*(\d+(?:-\d+)?)/);
+  if (!m) return null;
+  return { dongAdm: m[1], dong: dongLegal(m[1]), bon: m[2], loc: `${m[1]} ${m[2]}번지 일대`, label: (inner ? t.split("(")[0] : head.split(/소규모주택정비|모아타운/)[0]).trim() };
+}
+async function fetchMoatown() {
+  const cache = path.join(RAW, "moatown-ntfc.json");
+  let list = null;
+  try {
+    const r = await fetch("https://urban.seoul.go.kr/ntfc/getNtfcList.json", {
+      method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8", "User-Agent": UA }, signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ pageNo: 1, pageSize: 300, keywordList: ["모아타운"], srchType: "title" }),
+    });
+    const j = await r.json();
+    list = j.content ?? j.list ?? []; // 응답은 Spring Page(content) 형태
+    if (list.length) fs.writeFileSync(cache, JSON.stringify(list));
+  } catch (e) {
+    console.warn("  도시계획포털 모아타운 고시 목록 실패:", e.message.slice(0, 60));
+    list = fs.existsSync(cache) ? JSON.parse(fs.readFileSync(cache, "utf8")) : [];
+  }
+  // 위치별로 묶기 (관리계획 승인·변경만; 구역 안 가로주택 조합설립인가 등은 사업장이라 제외)
+  const byLoc = new Map();
+  for (const x of list) {
+    const title = (x.title ?? "").replace(/\s+/g, " ").trim();
+    if (!/소규모주택정비\s*관리계획/.test(title) || /조합설립|사업시행|관리처분/.test(title)) continue;
+    const loc = parseMoaTitle(title);
+    if (!loc) continue;
+    const date = String(x.noticeDate ?? x.date ?? "").slice(0, 10).replace(/\./g, "-");
+    const kind = /변경/.test(title) ? "변경 승인" : /지정을 위하여|열람|공람/.test(title) ? "공람" : "승인";
+    const key = `${loc.dong}|${loc.bon.split("-")[0]}`;
+    // 자치구는 고시번호 코드 앞 5자리(11590NTC… = 동작구)에서. 11000 은 시 본청 고시 → 아래에서 동 이름으로
+    const gu = GU_BY_CODE[String(x.noticeCode ?? "").slice(0, 5)] ?? null;
+    const cur = byLoc.get(key) ?? { loc, gu, notices: [] };
+    if (!cur.gu && gu) cur.gu = gu;
+    cur.notices.push({ date, kind, title, code: x.noticeCode ?? "" });
+    byLoc.set(key, cur);
+  }
+  // 시 본청(11000) 고시는 자치구가 없다 → 법정동 사전에서 동 이름으로
+  const emdList = fs.existsSync(path.join(ROOT, "lib", "bjd-emd.json")) ? JSON.parse(fs.readFileSync(path.join(ROOT, "lib", "bjd-emd.json"), "utf8")).map((l) => l.split("|")[1]) : [];
+  const guOfDong = (dong) => {
+    const hits = emdList.filter((f) => f.startsWith("서울특별시 ") && f.endsWith(` ${dong}`));
+    return hits.length === 1 ? hits[0].split(" ")[1] : null;
+  };
+  const out = [];
+  let i = 0;
+  for (const [, v] of byLoc) {
+    v.notices.sort((a, b) => a.date.localeCompare(b.date));
+    const first = v.notices.find((n) => n.kind === "승인") ?? v.notices[0];
+    const last = v.notices[v.notices.length - 1];
+    const gu = v.gu ?? guOfDong(v.loc.dong);
+    if (!gu) continue;
+    const stage = last.kind === "공람" && !v.notices.some((n) => n.kind !== "공람") ? "관리계획 공람" : "관리계획 승인(관리지역 지정)";
+    out.push({
+      no: 11900000 + ++i, sido: "서울", gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
+      name: `${v.loc.label || v.loc.loc} 모아타운`, jibun: `${v.loc.dong} ${v.loc.bon}`, loc: `서울특별시 ${gu} ${v.loc.loc}`, area: null,
+      extra: [["관리계획 승인", first.date], ...(last !== first ? [["최근 고시", `${last.kind} ${last.date}`]] : []), ["고시", last.title.slice(0, 60)]],
+      stage, docs: "", cafe: null, map: null,
+      note: { date: last.date, kw: `관리계획 ${last.kind}`, title: last.title, url: `https://urban.seoul.go.kr/view/html/PMNU5030110000?noticeCode=${encodeURIComponent(last.code)}`, src: "도시계획포털" },
+    });
+  }
+  // 대상지 현황(아직 승인 전) — data/moatown-sites.json 이 있으면 승인된 곳을 뺀 나머지를 '대상지 선정' 으로
+  const sitesPath = path.join(ROOT, "data", "moatown-sites.json");
+  let added = 0;
+  if (fs.existsSync(sitesPath)) {
+    const sites = JSON.parse(fs.readFileSync(sitesPath, "utf8"));
+    for (const s of sites.items ?? []) {
+      if (!s.dong || !s.bon) continue;
+      const loc = { dong: dongLegal(s.dong), bon: String(s.bon), loc: `${s.dongAdm ?? s.dong} ${s.bon}번지 일대` };
+      const key = `${loc.dong}|${loc.bon.split("-")[0]}`;
+      if (byLoc.has(key)) continue;
+      // 같은 동에 승인된 곳이 있고 본번이 비슷하면(±30) 같은 곳으로 본다 — 대상지 표기 지번과 고시 지번이 다를 수 있음
+      const near = [...byLoc.keys()].some((k) => k.startsWith(`${loc.dong}|`) && Math.abs(+k.split("|")[1] - +loc.bon.split("-")[0]) <= 30);
+      if (near) continue;
+      out.push({
+        no: 11900000 + ++i, sido: "서울", gu: s.gu, guCode: null, source: "모아타운", kind: "모아타운(소규모주택정비 관리지역)",
+        name: `${s.gu} ${loc.loc} 모아타운 대상지`, jibun: `${loc.dong} ${loc.bon}`, loc: `서울특별시 ${s.gu} ${loc.loc}`, area: s.area ?? null,
+        extra: [["대상지 선정", s.selected ?? ""], ["출처", sites.source ?? "서울시 모아타운 대상지 현황"]], stage: "대상지 선정", docs: "", cafe: null, map: null,
+        note: s.selected ? { date: s.selected, kw: "대상지 선정", src: "국토부·시 발표" } : null,
+      });
+      added++;
+    }
+  }
+  console.log(`· 모아타운 ${out.length}건 (관리계획 승인 ${out.length - added} + 대상지 ${added}; 도시계획포털 고시 ${list.length}건)`);
+  return out;
+}
+
+/**
  * 경기 — 일반 정비사업 추진현황 (경기데이터드림 시트 S62GFEEN7JMLMA0PH6CF19108891)
  * 공공데이터포털 15119846 은 파일이 없고 경기데이터드림으로 연결만 되므로, 화면이 쓰는 시트 조회(searchSheetData.do)를
  * 세션 쿠키 + CSRF 토큰과 함께 호출한다 (키 불필요, 100건씩 페이지).
@@ -1162,18 +1269,29 @@ async function fetchBuiltSignal(z, cache) {
   }
 }
 
+/** 후기 단계(관리처분·이주·철거·착공·분양)인데 아직 완료로 안 바뀐 사업장 — 준공 뒤 자료 갱신이 늦는 경우가 있다 */
+const LATE_STAGE = (s) => /관리처분|착공|철거|분양|이주/.test(s ?? "") && !/준공|청산|해산|이전고시|입주/.test(s ?? "");
+
 async function markBuiltZones(zones, projects, prevZones) {
-  const linked = new Set(projects.filter((p) => p.zoneFid).map((p) => p.zoneFid));
+  const byFid = new Map();
+  for (const p of projects) if (p.zoneFid) (byFid.get(p.zoneFid) ?? byFid.set(p.zoneFid, []).get(p.zoneFid)).push(p);
   const cands = zones.filter((z) => {
     const zp = z.properties;
-    if (zp.src === "parcel" || zp.src === "special" || linked.has(zp.fid) || UMBRELLA_CODE.test(zp.code)) return false;
+    if (UMBRELLA_CODE.test(zp.code)) return false;
+    const linked = byFid.get(zp.fid);
+    if (linked) {
+      // 연결 사업장이 모두 후기 단계면 준공됐는지 본다 (2026-09-08 확인: 행당7·이문3·방배5·도곡삼호 등 10곳이 단계만 옛 값)
+      return linked.every((p) => LATE_STAGE(p.stage)) && (zp.area ?? 0) < 300000;
+    }
+    if (zp.src === "parcel" || zp.src === "special") return false;
     const y = +((zp.ntfc ?? "").match(/NTC(\d{4})/)?.[1] ?? 0);
     return y >= 2010; // 그 이전 고시는 앱에서 이미 '과거 구역'
   });
-  console.log(`· 사업장 미연결 최근 구역 ${cands.length}개 → 신축 건물로 완공 여부 판별 (V-World 건물통합정보)`);
+  console.log(`· 사업장 미연결 최근 구역 + 후기 단계 구역 ${cands.length}개 → 신축 건물로 완공 여부 판별 (V-World 건물통합정보)`);
   const cache = fs.existsSync(builtCachePath) ? JSON.parse(fs.readFileSync(builtCachePath, "utf8")) : {};
   const prevBuilt = new Map((prevZones?.features ?? []).filter((f) => f.properties?.built != null).map((f) => [f.properties.fid, f.properties]));
-  let built = 0, kept = 0, i = 0;
+  const prevProjBuilt = new Set((readJson(path.join(OUT, "projects.json")) ?? []).filter((p) => p?.built).map((p) => p.no));
+  let built = 0, kept = 0, i = 0, projDone = 0;
   for (const z of cands) {
     if (++i % 100 === 0) {
       process.stdout.write(`  ${i}/${cands.length}\n`);
@@ -1193,9 +1311,15 @@ async function markBuiltZones(zones, projects, prevZones) {
       if (z.properties.built) built++;
       kept++;
     }
+    // 후기 단계 사업장이 연결된 구역이 준공으로 판별되면 그 사업장도 완료로 (앱에서 단계 뒤에 "준공(건물 확인)" 을 붙여 완공으로 분류)
+    const linked = byFid.get(z.properties.fid);
+    if (linked) {
+      const done = z.properties.built === true || (r === undefined && linked.some((p) => prevProjBuilt.has(p.no)));
+      if (done) for (const p of linked) if (!p.built) { p.built = true; projDone++; }
+    }
   }
   fs.writeFileSync(builtCachePath, JSON.stringify(cache));
-  console.log(`  완공으로 판별 ${built}개${kept ? ` (이전 자료 유지 ${kept})` : ""}`);
+  console.log(`  완공으로 판별 ${built}개${kept ? ` (이전 자료 유지 ${kept})` : ""}, 후기 단계 사업장 완료 처리 ${projDone}건`);
 }
 
 async function addParcelZones(projects, zones, prevZones) {
@@ -1242,7 +1366,7 @@ async function addParcelZones(projects, zones, prevZones) {
         type: "Feature",
         geometry: g,
         properties: {
-          fid, id: fid, name: p.name, code: /소규모/.test(p.kind) ? "UQ1280" : "UQ1240", gu: p.guCode ?? "", area: r.area, ntfc: "",
+          fid, id: fid, name: p.name, code: /소규모/.test(p.kind) ? "UQ1270" : "UQ1240", gu: p.guCode ?? "", area: r.area, ntfc: "",
           bbox: bbox(g).map((v) => +v.toFixed(6)), sido: p.sido ?? "서울", src: "parcel", pnu: r.pnu ?? null, jibun: r.addr ?? r.jibun ?? "",
         },
       };
@@ -1299,7 +1423,7 @@ async function main() {
     }
   }
   const seoulList = await collect("서울", "cleanup", async () => (await fetchCleanupList()).map((p) => ({ ...p, sido: "서울", source: "정보몽땅" })));
-  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon)), ...fetchNewtown()];
+  const list = [...seoulList, ...(await collect("경기", "gyeonggi", fetchGyeonggi)), ...(await collect("인천", "incheon", fetchIncheon)), ...fetchNewtown(), ...(await fetchMoatown())];
   if (!list.length) throw new Error("사업장 자료를 하나도 얻지 못함");
   console.log(`· 사업장 ${list.length}건 지오코딩 + 결합`);
   seedGeoCacheFromPrevious();
@@ -1621,7 +1745,7 @@ const PLACEHOLDER_AGZ = "11000AGZ000000001811";
 
 function kindClass(kind) {
   const k = (kind ?? "").replace(/\([^)]*\)/g, "");
-  if (/지역주택|리모델링/.test(k)) return "none";
+  if (/지역주택|리모델링|모아타운/.test(k)) return "none"; // 모아타운은 관리지역(면)이라 정비구역 폴리곤과 묶지 않는다
   if (/소규모재건축/.test(k)) return "small";
   if (/소규모재개발|가로주택|자율주택/.test(k)) return "small";
   if (/주거환경/.test(k)) return "env";

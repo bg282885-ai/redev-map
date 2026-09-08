@@ -108,7 +108,8 @@ export default function MapApp() {
         ]);
         if (!alive) return;
         setZones(z);
-        setProjects(p);
+        // 건물 자료로 준공이 확인된 사업장은 단계 뒤에 표시를 붙여 완공(완료)으로 분류 (자료 원문 단계는 그대로 두고 표시만)
+        setProjects(p.map((x) => (x.built && !/준공|청산|해산|이전고시|입주/.test(x.stage ?? "") ? { ...x, stage: `${x.stage || "단계 미기재"} · 준공(건물 확인)` } : x)));
         setMeta(m);
         // 공유 링크 (?p=사업장 / ?z=구역) 복원
         const sp = new URLSearchParams(window.location.search);
