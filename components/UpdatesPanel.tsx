@@ -38,17 +38,17 @@ export default function UpdatesPanel(p: Props) {
 
   return (
     <section
-      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[70vh] flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-[0_-4px_24px_rgba(0,0,0,.12)] lg:inset-auto lg:right-3 lg:top-3 lg:bottom-3 lg:max-h-none lg:w-[400px] lg:rounded-xl lg:shadow-lg"
+      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[70vh] flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-[0_-4px_24px_rgba(0,0,0,.12)] lg:inset-auto lg:right-3 lg:top-3 lg:bottom-3 lg:max-h-none lg:w-[400px] lg:rounded-xl lg:shadow-lg"
       aria-label="업데이트"
     >
-      <div className="flex items-center gap-2 border-b border-gray-100 px-4 pt-3 pb-2">
-        <h2 className="text-[15px] font-bold text-gray-900">업데이트</h2>
-        <span className="text-[11px] text-gray-400">자료 갱신 {p.meta?.builtAt ? p.meta.builtAt.slice(0, 10) : "-"}</span>
+      <div className="flex items-center gap-2 border-b border-line-2 px-4 pt-3 pb-2">
+        <h2 className="text-[15px] font-bold text-ink">업데이트</h2>
+        <span className="text-[11px] text-muted-2">자료 갱신 {p.meta?.builtAt ? p.meta.builtAt.slice(0, 10) : "-"}</span>
         <button onClick={p.onClose} className="btn ml-auto !px-2" aria-label="닫기">
           ✕
         </button>
       </div>
-      <div className="flex gap-1 border-b border-gray-100 px-3 py-2">
+      <div className="flex gap-1 border-b border-line-2 px-3 py-2">
         <button className={`chip ${tab === "changes" ? "on" : ""}`} onClick={() => setTab("changes")}>
           자료 변경 {entries.length ? entries.length : ""}
         </button>
@@ -61,15 +61,15 @@ export default function UpdatesPanel(p: Props) {
         {tab === "changes" && (
           <>
             {entries.length === 0 && (
-              <p className="px-1 py-6 text-center text-xs text-gray-500">
+              <p className="px-1 py-6 text-center text-xs text-muted">
                 아직 기록된 변경이 없습니다. 자료를 다시 수집하면(주 1회 자동) 신규 지정 구역·새 사업장·단계 변경이 여기에 쌓입니다.
                 {p.changes?.baseline ? ` 기준선: ${p.changes.baseline.slice(0, 10)}` : ""}
               </p>
             )}
             {groups.map(([date, list]) => (
               <div key={date} className="mt-3">
-                <div className="px-1 text-[11px] font-bold text-gray-400">{date}</div>
-                <ul className="divide-y divide-gray-100">
+                <div className="px-1 text-[11px] font-bold text-muted-2">{date}</div>
+                <ul className="divide-y divide-line-2">
                   {list.map((e, i) => {
                     const t = TYPE_LABEL[e.type];
                     const clickable = (e.no != null && p.hasProject(e.no)) || (e.fid && p.hasZone(e.fid));
@@ -79,11 +79,11 @@ export default function UpdatesPanel(p: Props) {
                           {t.label}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-semibold text-gray-800">
+                          <span className="block truncate text-[13px] font-semibold text-ink-2">
                             {isNew(e.ts) && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle" />}
                             {e.name}
                           </span>
-                          <span className="block text-[11px] text-gray-500">
+                          <span className="block text-[11px] text-muted">
                             {e.sido && e.sido !== "서울" ? `${e.sido} ` : ""}
                             {e.gu ? (/^\d{5}$/.test(e.gu) ? guName(e.gu) : e.gu) : ""}
                             {e.type === "stage-changed" || e.type === "kind-changed" ? ` · ${e.from || "-"} → ${e.to || "-"}` : ""}
@@ -98,7 +98,7 @@ export default function UpdatesPanel(p: Props) {
                         {clickable ? (
                           <button
                             onClick={() => (e.no != null && p.hasProject(e.no) ? p.onSelectProject(e.no) : e.fid && p.onSelectZone(e.fid))}
-                            className="flex w-full items-start gap-2 px-1 py-1.5 text-left hover:bg-gray-50"
+                            className="flex w-full items-start gap-2 px-1 py-1.5 text-left hover:bg-surface-2"
                           >
                             {body}
                           </button>
@@ -123,21 +123,21 @@ export default function UpdatesPanel(p: Props) {
                 <div className="skel h-3.5 w-4/6" />
               </div>
             )}
-            {!p.recentLoading && p.recent.length === 0 && <p className="px-1 py-6 text-center text-xs text-gray-500">최근 60일 안의 정비 관련 고시를 찾지 못했습니다.</p>}
-            <ul className="divide-y divide-gray-100">
+            {!p.recentLoading && p.recent.length === 0 && <p className="px-1 py-6 text-center text-xs text-muted">최근 60일 안의 정비 관련 고시를 찾지 못했습니다.</p>}
+            <ul className="divide-y divide-line-2">
               {p.recent.map((n) => (
                 <li key={n.url} className="py-1.5">
                   <a href={n.url} target="_blank" rel="noreferrer" className="group block px-1">
-                    <span className="mb-0.5 flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span className="mb-0.5 flex items-center gap-1.5 text-[11px] text-muted">
                       {n.date > p.seenAt.slice(0, 10) && <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand" />}
-                      <span className={`badge ${n.source === "정보몽땅" ? "bg-orange-50 text-orange-700" : n.source === "도시계획포털" ? "bg-purple-50 text-purple-700" : "bg-blue-50 text-blue-700"}`}>
+                      <span className={`badge ${n.source === "정보몽땅" ? "bg-orange-50 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300" : n.source === "도시계획포털" ? "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300" : "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"}`}>
                         {n.source}
                       </span>
                       <span>{n.date}</span>
                       {n.org && <span className="truncate">· {n.org}</span>}
-                      {n.sido !== "서울" && <span className="badge bg-gray-100 text-gray-600">{n.sido}</span>}
+                      {n.sido !== "서울" && <span className="badge bg-surface-2 text-muted">{n.sido}</span>}
                     </span>
-                    <span className="text-[13px] leading-snug text-gray-800 group-hover:text-brand group-hover:underline">{n.title}</span>
+                    <span className="text-[13px] leading-snug text-ink-2 group-hover:text-brand group-hover:underline">{n.title}</span>
                   </a>
                 </li>
               ))}
@@ -145,8 +145,8 @@ export default function UpdatesPanel(p: Props) {
           </>
         )}
 
-        <div className="mt-4 rounded-lg bg-gray-50 p-3 text-[11px] leading-relaxed text-gray-500">
-          <div className="font-bold text-gray-600">자료 기준</div>
+        <div className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
+          <div className="font-bold text-muted">자료 기준</div>
           <div>서울 구역 경계: {src?.seoulShp || "-"} (서울시, 연 2회)</div>
           <div>서울 사업장: 정보몽땅 {src?.cleanup || "-"} 수집</div>
           <div>경기 사업장: 경기데이터드림 {src?.gyeonggi || "-"} 수집</div>

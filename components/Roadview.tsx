@@ -189,12 +189,12 @@ export default function Roadview({ pos, target, picking, onTogglePick, onClose, 
 
   return (
     <section
-      className={`absolute inset-x-0 bottom-0 z-[25] flex h-[46vh] flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-[0_-4px_24px_rgba(0,0,0,.18)] lg:inset-auto lg:bottom-3 lg:h-[360px] lg:w-[560px] lg:rounded-xl lg:shadow-lg ${panelOpen ? "lg:right-[446px]" : "lg:right-3"}`}
+      className={`absolute inset-x-0 bottom-0 z-[25] flex h-[46vh] flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-[0_-4px_24px_rgba(0,0,0,.18)] lg:inset-auto lg:bottom-3 lg:h-[360px] lg:w-[560px] lg:rounded-xl lg:shadow-lg ${panelOpen ? "lg:right-[446px]" : "lg:right-3"}`}
       aria-label="로드뷰"
     >
-      <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-1.5">
-        <span className="text-[13px] font-bold text-gray-900">로드뷰</span>
-        <span className="min-w-0 truncate text-[11px] text-gray-500">
+      <div className="flex items-center gap-2 border-b border-line-2 px-3 py-1.5">
+        <span className="text-[13px] font-bold text-ink">로드뷰</span>
+        <span className="min-w-0 truncate text-[11px] text-muted">
           {state === "ok" && panoDist != null && target ? `${target.name} · 촬영 지점에서 ${panoDist} m` : target && panoDist == null && state === "ok" ? "선택 지점" : (target?.name ?? "")}
         </span>
         <div className="ml-auto flex flex-none items-center gap-1">
@@ -209,10 +209,10 @@ export default function Roadview({ pos, target, picking, onTogglePick, onClose, 
           </button>
         </div>
       </div>
-      <div className="relative min-h-0 flex-1 bg-gray-100">
+      <div className="relative min-h-0 flex-1 bg-surface-2">
         <div ref={elRef} className="absolute inset-0" />
         {state !== "ok" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/85 p-4 text-center text-xs text-gray-600">
+          <div className="absolute inset-0 flex items-center justify-center bg-surface/85 p-4 text-center text-xs text-muted">
             {state === "loading" && "로드뷰 불러오는 중…"}
             {state === "empty" && (
               <span>

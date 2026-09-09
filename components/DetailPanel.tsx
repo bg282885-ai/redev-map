@@ -139,15 +139,15 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
 
   return (
     <section
-      className="rm-scroll absolute inset-x-0 bottom-0 z-20 flex max-h-[62vh] flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-[0_-4px_24px_rgba(0,0,0,.12)] lg:inset-auto lg:right-3 lg:top-3 lg:bottom-3 lg:max-h-none lg:w-[430px] lg:rounded-xl lg:shadow-lg"
+      className="rm-scroll absolute inset-x-0 bottom-0 z-20 flex max-h-[62vh] flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-[0_-4px_24px_rgba(0,0,0,.12)] lg:inset-auto lg:right-3 lg:top-3 lg:bottom-3 lg:max-h-none lg:w-[430px] lg:rounded-xl lg:shadow-lg"
       aria-label="상세 정보"
     >
       {/* 헤더 */}
-      <div className="flex items-start gap-2 border-b border-gray-100 px-4 pt-3 pb-2">
+      <div className="flex items-start gap-2 border-b border-line-2 px-4 pt-3 pb-2">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             {project && (
-              <span className="badge" style={{ background: "#111", color: "#fff" }}>
+              <span className="badge" style={{ background: "var(--ink)", color: "var(--bg)" }}>
                 {kindShort(project.kind)}
               </span>
             )}
@@ -163,15 +163,15 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                   {stageLabel(project)}
                 </span>
                 {correctionOf(project) && (
-                  <span className="badge bg-gray-100 text-gray-500" title={`${project.source ?? "원자료"} 진행단계: ${rawStage(project.stage) || "미기재"} — ${correctionOf(project)?.src ?? ""}`}>
+                  <span className="badge bg-surface-2 text-muted" title={`${project.source ?? "원자료"} 진행단계: ${rawStage(project.stage) || "미기재"} — ${correctionOf(project)?.src ?? ""}`}>
                     원자료 {rawStage(project.stage) || "미기재"}
                   </span>
                 )}
               </>
             )}
           </div>
-          <h2 className="text-[15px] font-bold leading-snug text-gray-900">{title || "(이름 없음)"}</h2>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <h2 className="text-[15px] font-bold leading-snug text-ink">{title || "(이름 없음)"}</h2>
+          <p className="mt-0.5 text-xs text-muted">
             {project
               ? /^(서울특별시|경기도|인천광역시)/.test(project.loc ?? "")
                 ? project.loc
@@ -180,25 +180,25 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 ? `${zp.sido && zp.sido !== "서울" ? `${zp.sido} ` : ""}${guName(zp.gu)} · 결정고시 ${ntfcDate(zp.ntfc) || "-"}`
                 : ""}
             {project && zp && project.zoneHow && (
-              <span className="ml-1 text-gray-400">
+              <span className="ml-1 text-muted-2">
                 · {project.zoneHow === "parcel" ? "경계: 대표지번 필지 (정비구역 미지정)" : project.zoneHow === "special" ? "경계: 지구단위계획 특별계획구역 (정비구역 미지정)" : project.zoneHow === "seoulplan" ? "경계: 서울플랜+ 도시계획사업 도형" : `구역 연결: ${project.zoneHow === "map" ? "고시코드" : project.zoneHow === "point" ? "지번 위치" : "구역명"}`}
               </span>
             )}
           </p>
           {project?.note && (
-            <p className="mt-0.5 text-xs text-emerald-700" title={project.note.title ?? ""}>
+            <p className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-400" title={project.note.title ?? ""}>
               최근 동향: <span className="font-semibold">{project.note.kw}</span> · {project.note.date.slice(0, 7)}
               {project.note.url ? (
-                <a href={project.note.url} target="_blank" rel="noreferrer" className="ml-1 text-gray-400 underline hover:text-brand">
+                <a href={project.note.url} target="_blank" rel="noreferrer" className="ml-1 text-muted-2 underline hover:text-brand">
                   {project.note.src === "서울플랜+" ? "서울플랜+ 사업현황" : `${project.note.src} 공고`}
                 </a>
               ) : (
-                <span className="ml-1 text-gray-400">({project.note.src} 추진현황)</span>
+                <span className="ml-1 text-muted-2">({project.note.src} 추진현황)</span>
               )}
             </p>
           )}
           {project?.stale && (
-            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
               통합 전 옛 기록입니다. 이 현장은{" "}
               {successor ? (
                 <>
@@ -214,39 +214,39 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             </p>
           )}
           {project?.useApr && (
-            <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800">
+            <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
               건축물대장에서 준공이 확인됐습니다: <span className="font-semibold">{project.useApr.name || "새 공동주택"}</span> 사용승인 {project.useApr.date}
               {project.useApr.units ? ` · ${project.useApr.units.toLocaleString()}세대` : ""}
               {project.useApr.dongs ? ` ${project.useApr.dongs}동` : ""}. 정보몽땅 단계는 &apos;{project.stage.split(" · ")[0]}&apos;에 머물러 있어 완공으로 분류했습니다.
-              <span className="ml-1 text-emerald-600">(국토부 건축HUB 총괄표제부)</span>
+              <span className="ml-1 text-emerald-600 dark:text-emerald-400">(국토부 건축HUB 총괄표제부)</span>
             </p>
           )}
           {project?.built && !project.useApr && (
-            <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800">
+            <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11.5px] leading-snug text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
               구역 안에 신축 고층 건물이 확인되어(GIS건물통합정보) 준공된 것으로 보고 완공으로 분류했습니다. 원자료 단계는 &apos;{rawStage(project.stage)}&apos;에 머물러 있습니다.
             </p>
           )}
           {project?.plan?.ended && !project.useApr && !project.built && (
-            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
               서울플랜+(서울시 도시계획사업 현황)에 이 사업의 추진단계가 &apos;{project.plan.stage}&apos;
               {project.plan.date ? ` (${project.plan.date})` : ""}로 등록되어 있어 사업이 끝난 것으로 보고 완공과 함께 숨깁니다.
             </p>
           )}
           {project?.doneBy === "정보마당" && !project.useApr && (
-            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800">
+            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11.5px] leading-snug text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
               정보몽땅 단계는 &apos;{project.stage.split(" · ")[0]}&apos;이지만, 서울시가 반기마다 내는 착공 중 구역 목록(서울주택정보마당 관리처분-착공 현황)과 이주완료 목록에 이 구역이 없어
               준공된 것으로 보고 완공으로 분류했습니다.
             </p>
           )}
           {project?.cons && (
-            <p className="mt-0.5 text-xs text-gray-500">
-              서울시 착공 현황: <span className="font-semibold text-gray-700">{project.cons.date} 착공</span>
+            <p className="mt-0.5 text-xs text-muted">
+              서울시 착공 현황: <span className="font-semibold text-ink-2">{project.cons.date} 착공</span>
               {project.cons.type ? ` · ${project.cons.type}` : ""}
               {project.cons.units ? ` · 공급 ${project.cons.units}세대` : ""}
-              <span className="ml-1 text-gray-400">(서울주택정보마당)</span>
+              <span className="ml-1 text-muted-2">(서울주택정보마당)</span>
             </p>
           )}
-          {project?.moved && !project.cons && <p className="mt-0.5 text-xs text-gray-500">서울시 이주완료 구역 목록에 있습니다 (서울주택정보마당, 착공 전).</p>}
+          {project?.moved && !project.cons && <p className="mt-0.5 text-xs text-muted">서울시 이주완료 구역 목록에 있습니다 (서울주택정보마당, 착공 전).</p>}
         </div>
         <button onClick={onFocus} className="btn !px-2" title="지도에서 보기" aria-label="지도에서 보기">
           ◎
@@ -314,7 +314,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             {(project.extra ?? []).map(([k, v]) => (
               <Row key={k} k={k} v={v} />
             ))}
-            <p className="mt-1 text-[11px] text-gray-400">
+            <p className="mt-1 text-[11px] text-muted-2">
               {project.source === "경기도"
                 ? "경기도 일반 정비사업 추진현황(공공데이터포털)"
                 : project.source === "1기신도시"
@@ -347,7 +347,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             <Row k="필지" v={zp.jibun || "-"} />
             <Row k="대지면적" v={fmtArea(zp.area)} />
             {zp.pnu && <Row k="PNU" v={zp.pnu} mono />}
-            <p className="mt-1 text-[11px] text-gray-400">
+            <p className="mt-1 text-[11px] text-muted-2">
               정비구역이 아직 지정되지 않았거나 서울시 구역 자료에 없는 단지입니다. 표시한 경계는 V-World 연속지적도의 대표지번 필지(대지)이며, 정비구역 경계가 아닙니다.
             </p>
           </Card>
@@ -357,7 +357,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             <Row k="구역명" v={zp.name || "-"} />
             <Row k="면적" v={fmtArea(zp.area)} />
             <Row k="결정고시" v={ntfcDate(zp.ntfc) ? `${ntfcDate(zp.ntfc)} (${zp.ntfc})` : zp.ntfc || "-"} />
-            <p className="mt-1 text-[11px] text-gray-400">
+            <p className="mt-1 text-[11px] text-muted-2">
               정비구역이 아직 지정되지 않은 단지입니다. 표시한 경계는 서울시 지구단위계획구역(특별계획구역) 공간정보(열린데이터광장 OA-21164)의 특별계획구역이며, 앞으로 결정될 정비구역과 다를 수 있습니다.
             </p>
           </Card>
@@ -369,7 +369,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             {(project.plan.history ?? [])
               .filter((h) => !(h.stage === project.plan!.stage && h.date === project.plan!.date))
               .map((h, i) => <Row key={i} k={`이력 · ${h.stage}`} v={h.date || "-"} />)}
-            <p className="mt-1 text-[11px] text-gray-400">
+            <p className="mt-1 text-[11px] text-muted-2">
               서울시 도시계획포털 서울플랜+ &apos;도시계획사업 현황&apos;에 같은 사업으로 등록된 기록의 추진단계입니다. 정보몽땅(조합 입력) 단계와 다를 수 있으며, 지도 라벨의 둘째 항목은 둘 중 더 최근 것을
               보입니다.{" "}
               <a href={links.seoulPlan(project.plan.code)} target="_blank" rel="noreferrer" className="underline hover:text-brand">
@@ -383,7 +383,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             <Row k="구역명" v={zp.name || "-"} />
             <Row k="면적" v={fmtArea(zp.area)} />
             <Row k="도형 코드" v={zp.fid} mono />
-            <p className="mt-1 text-[11px] text-gray-400">
+            <p className="mt-1 text-[11px] text-muted-2">
               서울시 도시계획포털 서울플랜+ &apos;도시계획사업 현황&apos;의 도형입니다. 구역 지정·관리계획 승인이 난 곳은 고시된 경계이고, 대상지 선정·자문·심의 단계인 곳은 검토 범위라 지정 때 경계가
               바뀔 수 있습니다. 법적 경계는 고시문의 지형도면이 기준입니다.{" "}
               <a href={links.seoulPlan(zp.code)} target="_blank" rel="noreferrer" className="underline hover:text-brand">
@@ -391,7 +391,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               </a>
             </p>
             {zoneProjects.length > 1 && sel.type === "project" && (
-              <p className="mt-1 text-[11px] text-gray-500">이 구역에 사업장 {zoneProjects.length}건이 연결되어 있습니다.</p>
+              <p className="mt-1 text-[11px] text-muted">이 구역에 사업장 {zoneProjects.length}건이 연결되어 있습니다.</p>
             )}
           </Card>
         )}
@@ -403,30 +403,30 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             <Row k="결정고시" v={ntfcDate(zp.ntfc) ? `${ntfcDate(zp.ntfc)} (${zp.ntfc})` : zp.ntfc || "-"} />
             <Row k="관리코드" v={zp.id} mono />
             {zp.dups?.length ? (
-              <p className="mt-1 text-[11px] text-gray-400">
+              <p className="mt-1 text-[11px] text-muted-2">
                 서울시 구역 자료에 같은 경계의 도형이 고시 차수별로 {zp.dups.length + 1}개 있어 최신 고시 도형만 표시합니다. 이전 고시:{" "}
                 {zp.dups.map((n) => ntfcDate(n) || "일자 미상").join(", ")}
               </p>
             ) : null}
             {zp.src === "vworld" && (
-              <p className="mt-1 text-[11px] text-gray-400">V-World 지구단위계획구역(UPIS) 레이어에서 정비구역 이름으로 찾은 경계입니다. 정비구역 지정 시 함께 결정된 지구단위계획구역 경계라 정비구역과 다를 수 있습니다.</p>
+              <p className="mt-1 text-[11px] text-muted-2">V-World 지구단위계획구역(UPIS) 레이어에서 정비구역 이름으로 찾은 경계입니다. 정비구역 지정 시 함께 결정된 지구단위계획구역 경계라 정비구역과 다를 수 있습니다.</p>
             )}
             {zp.built && zoneProjects.length === 0 && (
-              <p className="mt-1 text-[11px] text-emerald-700">
+              <p className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400">
                 구역 안에 신축 고층 건물 {zp.builtN ?? 0}동이 있어(GIS건물통합정보) 준공된 것으로 보고 &apos;완공&apos;으로 분류했습니다. 연결된 사업장 정보는 없습니다.
               </p>
             )}
             {zp.built === false && zoneProjects.length === 0 && (
-              <p className="mt-1 text-[11px] text-gray-400">정보몽땅·경기·인천 사업장 목록에 연결된 사업장이 없고, 구역 안에 신축 고층 건물도 확인되지 않아 진행 중(또는 정체)으로 봅니다.</p>
+              <p className="mt-1 text-[11px] text-muted-2">정보몽땅·경기·인천 사업장 목록에 연결된 사업장이 없고, 구역 안에 신축 고층 건물도 확인되지 않아 진행 중(또는 정체)으로 봅니다.</p>
             )}
             {zoneProjects.length > 1 && sel.type === "project" && (
-              <p className="mt-1 text-[11px] text-gray-500">이 구역에 사업장 {zoneProjects.length}건이 연결되어 있습니다.</p>
+              <p className="mt-1 text-[11px] text-muted">이 구역에 사업장 {zoneProjects.length}건이 연결되어 있습니다.</p>
             )}
           </Card>
         )}
         {!zp && project && (
           <Card title="정비구역">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted">
               {sido === "서울"
                 ? "서울시 의제처리구역 자료에서 대응하는 구역 폴리곤을 찾지 못했습니다. 정비구역 지정 전(정비계획 수립·안전진단 단계)이거나 가로주택·소규모 사업일 수 있습니다."
                 : `${sido} 정비구역 경계는 공개 파일이 없어, V-World 지구단위계획 레이어에 정비구역 이름으로 올라온 곳만 표시됩니다. 경계는 토지이음(토지이용계획 열람)에서 지번으로 확인할 수 있습니다.`}
@@ -437,18 +437,18 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
 
         {/* 최신 고시 한 줄 */}
         {!gosiLoading && latest && (
-          <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
-            <div className="mb-1 flex items-center gap-1.5 text-[11px] text-gray-500">
+          <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50/60 dark:border-orange-900 dark:bg-orange-950/30 p-3">
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted">
               <span className="badge bg-brand text-white">최신 고시</span>
-              <span className="font-semibold text-gray-700">{latest.date}</span>
+              <span className="font-semibold text-ink-2">{latest.date}</span>
               <span>· {latest.source}</span>
               {latest.org && <span className="truncate">· {latest.org}</span>}
             </div>
-            <a href={latest.url} target="_blank" rel="noreferrer" className="text-[13px] font-semibold leading-snug text-gray-900 hover:text-brand hover:underline">
+            <a href={latest.url} target="_blank" rel="noreferrer" className="text-[13px] font-semibold leading-snug text-ink hover:text-brand hover:underline">
               {latest.title}
             </a>
             {zp?.ntfc && ntfcDate(zp.ntfc) && ntfcDate(zp.ntfc) < latest.date && (
-              <p className="mt-1 text-[11px] text-gray-500">경계 자료의 결정고시({ntfcDate(zp.ntfc)}) 이후에 나온 고시입니다. 경계·계획이 바뀌었을 수 있습니다.</p>
+              <p className="mt-1 text-[11px] text-muted">경계 자료의 결정고시({ntfcDate(zp.ntfc)}) 이후에 나온 고시입니다. 경계·계획이 바뀌었을 수 있습니다.</p>
             )}
           </div>
         )}
@@ -462,16 +462,16 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 <div className="skel h-3.5 w-2/3" />
               </div>
             )}
-            {ntfcError && <p className="text-xs text-gray-500">고시 상세를 불러오지 못했습니다 ({ntfcError}).</p>}
+            {ntfcError && <p className="text-xs text-muted">고시 상세를 불러오지 못했습니다 ({ntfcError}).</p>}
             {ntfcData && (
               <>
-                <p className="text-[13px] font-semibold leading-snug text-gray-800">{ntfcData.title || "(제목 없음)"}</p>
-                <p className="mt-0.5 text-[12px] text-gray-500">
+                <p className="text-[13px] font-semibold leading-snug text-ink-2">{ntfcData.title || "(제목 없음)"}</p>
+                <p className="mt-0.5 text-[12px] text-muted">
                   {ntfcData.no ? `서울특별시고시 제${ntfcData.no}호` : ""}
                   {ntfcData.date ? ` · ${ntfcData.date}` : ""}
                   {ntfcData.org ? ` · ${ntfcData.org}` : ""}
                 </p>
-                {ntfcData.content && <p className="mt-1.5 line-clamp-4 text-[12px] leading-relaxed text-gray-600">{ntfcData.content}</p>}
+                {ntfcData.content && <p className="mt-1.5 line-clamp-4 text-[12px] leading-relaxed text-muted">{ntfcData.content}</p>}
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {ntfcData.fileUrl && (
                     <a className="btn primary" href={ntfcData.fileUrl} target="_blank" rel="noreferrer" title={ntfcData.fileName}>
@@ -484,11 +484,11 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 </div>
                 {ntfcData.drawings.length > 0 && (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-gray-500">고시 도면 {ntfcData.drawings.length}장</summary>
+                    <summary className="cursor-pointer text-xs text-muted">고시 도면 {ntfcData.drawings.length}장</summary>
                     <ul className="mt-1 space-y-0.5">
                       {ntfcData.drawings.map((d) => (
                         <li key={d.url}>
-                          <a href={d.url} target="_blank" rel="noreferrer" className="text-[12px] text-blue-700 hover:underline">
+                          <a href={d.url} target="_blank" rel="noreferrer" className="text-[12px] text-blue-700 dark:text-blue-300 hover:underline">
                             {d.name}
                           </a>
                         </li>
@@ -505,16 +505,16 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
         {sel.type === "zone" && (
           <Card title={`사업장 (정보몽땅) ${zoneProjects.length}건`}>
             {zoneProjects.length === 0 ? (
-              <p className="text-xs text-gray-500">정보몽땅에 연결된 사업장이 없습니다. 아래 고시·공고와 검색 링크로 확인하세요.</p>
+              <p className="text-xs text-muted">정보몽땅에 연결된 사업장이 없습니다. 아래 고시·공고와 검색 링크로 확인하세요.</p>
             ) : (
-              <ul className="divide-y divide-gray-100">
+              <ul className="divide-y divide-line-2">
                 {zoneProjects.map((p) => (
                   <li key={p.no}>
-                    <button onClick={() => onSelectProject(p.no)} className="flex w-full items-start gap-2 py-1.5 text-left hover:bg-gray-50">
+                    <button onClick={() => onSelectProject(p.no)} className="flex w-full items-start gap-2 py-1.5 text-left hover:bg-surface-2">
                       <span className="mt-1 inline-block h-2.5 w-2.5 flex-none rounded-full" style={{ background: STAGE_COLOR[stageGroup(p.stage)] }} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-semibold text-gray-800">{p.name}</span>
-                        <span className="block text-[11px] text-gray-500">
+                        <span className="block truncate text-[13px] font-semibold text-ink-2">{p.name}</span>
+                        <span className="block text-[11px] text-muted">
                           {kindShort(p.kind)} · {stageLabel(p)}
                           {correctionOf(p) ? ` (원자료 ${rawStage(p.stage) || "미기재"})` : ""} · {p.jibun}
                         </span>
@@ -537,11 +537,11 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
                 <div className="skel h-3.5 w-1/2" />
               </div>
             )}
-            {sumError && <p className="text-xs text-red-600">불러오지 못했습니다: {sumError}</p>}
+            {sumError && <p className="text-xs text-danger">불러오지 못했습니다: {sumError}</p>}
             {sumData && (
               <>
                 {sumData.fields.length === 0 ? (
-                  <p className="text-xs text-gray-500">공개된 사업개요가 없습니다.</p>
+                  <p className="text-xs text-muted">공개된 사업개요가 없습니다.</p>
                 ) : (
                   sumData.fields.map(([k, v]) => <Row key={k} k={k} v={v} />)
                 )}
@@ -563,20 +563,20 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               <div className="skel h-3.5 w-full" />
               <div className="skel h-3.5 w-5/6" />
               <div className="skel h-3.5 w-4/6" />
-              <p className="pt-1 text-[11px] text-gray-400">정보몽땅 게시판과 토지이음 고시정보를 읽는 중… (첫 조회는 수 초)</p>
+              <p className="pt-1 text-[11px] text-muted-2">정보몽땅 게시판과 토지이음 고시정보를 읽는 중… (첫 조회는 수 초)</p>
             </div>
           )}
           {!gosiLoading && strong.length === 0 && (
-            <p className="text-xs text-gray-500">최근 목록에서 구역명이 들어간 고시·공고를 찾지 못했습니다. 아래 검색 링크를 이용하세요.</p>
+            <p className="text-xs text-muted">최근 목록에서 구역명이 들어간 고시·공고를 찾지 못했습니다. 아래 검색 링크를 이용하세요.</p>
           )}
           {!gosiLoading && strong.length > 0 && <GosiList items={strong} />}
           {!gosiLoading && weak.length > 0 && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-gray-500">{dong || "같은 동"} 관련 최근 고시 {weak.length}건</summary>
+              <summary className="cursor-pointer text-xs text-muted">{dong || "같은 동"} 관련 최근 고시 {weak.length}건</summary>
               <GosiList items={weak} />
             </details>
           )}
-          {gosiErrors.length > 0 && <p className="mt-1 text-[11px] text-amber-600">일부 출처 조회 실패: {gosiErrors.join(" / ")}</p>}
+          {gosiErrors.length > 0 && <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">일부 출처 조회 실패: {gosiErrors.join(" / ")}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5">
             {sido === "서울" && (
               <a className="chip" href={links.cleanupBoard(guCode)} target="_blank" rel="noreferrer">
@@ -605,7 +605,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
           </div>
         </Card>
 
-        <p className="mt-4 text-[11px] leading-relaxed text-gray-400">
+        <p className="mt-4 text-[11px] leading-relaxed text-muted-2">
           출처: 서울시 의제처리구역 위치정보(열린데이터광장, 연 2회 갱신) · 정비사업 정보몽땅 · 서울 도시계획포털 · 경기도·인천시 정비사업 추진현황(공공데이터포털) ·
           V-World UPIS · 토지이음. 구역 경계와 정보는 참고용이며 법적 효력이 없습니다. 정확한 내용은 각 고시문과 사업장 공개자료를 확인하세요.
         </p>
@@ -616,8 +616,8 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
 
 function Card({ title, children, onTitleClick }: { title: string; children: React.ReactNode; onTitleClick?: () => void }) {
   return (
-    <div className="mt-3 rounded-lg border border-gray-200 p-3">
-      <h3 className="mb-1.5 flex items-center text-[12px] font-bold tracking-wide text-gray-500">
+    <div className="mt-3 rounded-lg border border-line p-3">
+      <h3 className="mb-1.5 flex items-center text-[12px] font-bold tracking-wide text-muted">
         {onTitleClick ? (
           <button onClick={onTitleClick} className="hover:text-brand hover:underline">
             {title} ›
@@ -634,37 +634,37 @@ function Card({ title, children, onTitleClick }: { title: string; children: Reac
 function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
     <div className="flex gap-2 py-[3px] text-[12.5px] leading-snug">
-      <span className="w-[86px] flex-none text-gray-500">{k}</span>
-      <span className={`min-w-0 flex-1 break-words text-gray-800 ${mono ? "font-mono text-[11.5px]" : ""}`}>{v}</span>
+      <span className="w-[86px] flex-none text-muted">{k}</span>
+      <span className={`min-w-0 flex-1 break-words text-ink-2 ${mono ? "font-mono text-[11.5px]" : ""}`}>{v}</span>
     </div>
   );
 }
 
 function Thumb({ src, label }: { src: string; label: string }) {
   return (
-    <a href={src} target="_blank" rel="noreferrer" className="block w-1/2 overflow-hidden rounded-md border border-gray-200">
+    <a href={src} target="_blank" rel="noreferrer" className="block w-1/2 overflow-hidden rounded-md border border-line">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={label} className="h-28 w-full object-cover" loading="lazy" />
-      <span className="block bg-gray-50 px-2 py-1 text-center text-[11px] text-gray-600">{label} · 크게 보기</span>
+      <span className="block bg-surface-2 px-2 py-1 text-center text-[11px] text-muted">{label} · 크게 보기</span>
     </a>
   );
 }
 
 function GosiList({ items }: { items: GosiItem[] }) {
   return (
-    <ul className="divide-y divide-gray-100">
+    <ul className="divide-y divide-line-2">
       {items.map((g) => (
         <li key={g.url} className="py-1.5">
           <a href={g.url} target="_blank" rel="noreferrer" className="group block">
-            <span className="mb-0.5 flex items-center gap-1.5 text-[11px] text-gray-500">
-              <span className={`badge ${g.source === "정보몽땅" ? "bg-orange-50 text-orange-700" : g.source === "도시계획포털" ? "bg-purple-50 text-purple-700" : "bg-blue-50 text-blue-700"}`}>
+            <span className="mb-0.5 flex items-center gap-1.5 text-[11px] text-muted">
+              <span className={`badge ${g.source === "정보몽땅" ? "bg-orange-50 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300" : g.source === "도시계획포털" ? "bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300" : "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"}`}>
                 {g.source}
               </span>
               <span>{g.date}</span>
               {g.org && <span>· {g.org}</span>}
               {g.no && g.source === "토지이음" && <span className="truncate">· {g.no}</span>}
             </span>
-            <span className="text-[13px] leading-snug text-gray-800 group-hover:text-brand group-hover:underline">{g.title}</span>
+            <span className="text-[13px] leading-snug text-ink-2 group-hover:text-brand group-hover:underline">{g.title}</span>
           </a>
         </li>
       ))}

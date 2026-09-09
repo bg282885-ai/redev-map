@@ -82,6 +82,9 @@ function applyFocus(map: L.Map, focus: Focus, panelOpen: boolean, animate: boole
   }
 }
 
+/** 선택 강조 테두리색 — 라이트 검정, 다크(html.dark) 밝은 회백 (components/ThemeToggle.tsx 가 hub:theme 이벤트로 바뀜을 알린다) */
+const selColor = () => (typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "#f3f4f6" : "#111");
+
 /** 경계 자료가 없고 위치도 대략인 사업장: 도형 없는 모아타운 대상지(대표지번 한 점)·법정동 중심(준공 후 지번 합병) — 점선 테두리로 구분 */
 const isApprox = (pr: Project) => (pr.source === "모아타운" && !pr.zoneFid) || pr.locSrc === "emd";
 function markerStyle(pr: Project): L.CircleMarkerOptions {
@@ -110,6 +113,13 @@ export default function MapView(p: Props) {
   const mapRef = useRef<L.Map | null>(null);
   /* 지도가 만들어진 뒤에야 레이어 효과가 돌도록 하는 신호 (컨테이너 크기가 잡힌 뒤 생성) */
   const [ready, setReady] = useState(0);
+  /* 테마가 바뀌면 선택 강조색(selColor)을 다시 칠하도록 하는 신호 */
+  const [themeTick, setThemeTick] = useState(0);
+  useEffect(() => {
+    const on = () => setThemeTick((n) => n + 1);
+    window.addEventListener("hub:theme", on);
+    return () => window.removeEventListener("hub:theme", on);
+  }, []);
   const baseRef = useRef<L.Layer[]>([]);
   const zoneLayerRef = useRef<L.GeoJSON | null>(null);
   const zoneByFid = useRef(new Map<string, L.Path>());
@@ -346,7 +356,7 @@ export default function MapView(p: Props) {
         });
         const sub = p.zoneSub.get(zf.properties.fid);
         lyr.bindTooltip(
-          `${zf.properties.name || "(이름 없음)"}${sub ? `<br><span style="font-weight:400;color:#666">${sub}</span>` : ""}`,
+          `${zf.properties.name || "(이름 없음)"}${sub ? `<br><span style="font-weight:400;color:var(--muted)">${sub}</span>` : ""}`,
           { sticky: true, direction: "top", className: "rm-tip", opacity: 1 },
         );
       },
@@ -381,11 +391,11 @@ export default function MapView(p: Props) {
         cb.current.onSelectProject(pr.no);
       });
       const c = correctionOf(pr);
-      const stageLine = c ? `${stageLabel(pr)} <span style="color:#999">(원자료 ${rawStage(pr.stage) || "미기재"})</span>` : stageLabel(pr);
+      const stageLine = c ? `${stageLabel(pr)} <span style="color:var(--muted-2)">(원자료 ${rawStage(pr.stage) || "미기재"})</span>` : stageLabel(pr);
       const approxLine = isApprox(pr)
-        ? `<br><span style="font-weight:400;color:#999">${pr.source === "모아타운" ? "모아타운 대상지 — 경계 자료 없음, 대표지번 점만 표시" : "대략 위치(법정동 중심)"}${pr.zoneFid ? "" : " · 옆 구역 경계와 별개 사업"}</span>`
+        ? `<br><span style="font-weight:400;color:var(--muted-2)">${pr.source === "모아타운" ? "모아타운 대상지 — 경계 자료 없음, 대표지번 점만 표시" : "대략 위치(법정동 중심)"}${pr.zoneFid ? "" : " · 옆 구역 경계와 별개 사업"}</span>`
         : "";
-      m.bindTooltip(`${pr.name}<br><span style="font-weight:400;color:#666">${stageLine}</span>${approxLine}`, {
+      m.bindTooltip(`${pr.name}<br><span style="font-weight:400;color:var(--muted)">${stageLine}</span>${approxLine}`, {
         direction: "top",
         offset: [0, -6],
         className: "rm-tip",
@@ -423,7 +433,7 @@ export default function MapView(p: Props) {
     if (p.selectedZoneFid) {
       const lyr = zoneByFid.current.get(p.selectedZoneFid);
       if (lyr) {
-        lyr.setStyle({ weight: 3.5, color: "#111", fillOpacity: 0.45, dashArray: undefined });
+        lyr.setStyle({ weight: 3.5, color: selColor(), fillOpacity: 0.45, dashArray: undefined });
         lyr.bringToFront();
         highlighted.current.zone = p.selectedZoneFid;
       }
@@ -431,12 +441,12 @@ export default function MapView(p: Props) {
     if (p.selected?.type === "project") {
       const m = markerByNo.current.get(p.selected.no);
       if (m) {
-        m.setStyle({ radius: 10, weight: 3, color: "#111" });
+        m.setStyle({ radius: 10, weight: 3, color: selColor() });
         m.bringToFront();
         highlighted.current.no = p.selected.no;
       }
     }
-  }, [p.selected, p.selectedZoneFid, p.zones, p.projects, p.visibleFids, p.showZones, p.showMarkers, ready]);
+  }, [p.selected, p.selectedZoneFid, p.zones, p.projects, p.visibleFids, p.showZones, p.showMarkers, ready, themeTick]);
 
   /* 이동 — 지도가 아직 없으면(크기 잡히기 전) 만들어진 뒤 실행한다 */
   useEffect(() => {
@@ -454,5 +464,6 @@ export default function MapView(p: Props) {
   }, [p.focus, ready]);
 
   // 클래스는 통째 문자열로 — 템플릿 리터럴 안에 `z-0${…}` 처럼 붙여 쓰면 Tailwind 가 z-0 을 못 찾아 지도가 패널 위로 올라온다 (2026-09-09)
-  return <div ref={elRef} className={"absolute inset-0 z-0" + (p.picking ? " rm-picking" : "")} />;
+  // rm-dark-tiles: html.dark 에서 기본·OSM 타일을 CSS 로 반전(globals.css). 위성은 사진이라 제외
+  return <div ref={elRef} className={"absolute inset-0 z-0" + (p.picking ? " rm-picking" : "") + (p.base !== "vSat" ? " rm-dark-tiles" : "")} />;
 }

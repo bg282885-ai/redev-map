@@ -1,8 +1,79 @@
 @import "tailwindcss";
 
-@theme inline {
-  --color-brand: #ec6c1e;
+/* `dark:` 유틸리티는 <html class="dark"> 에서만 동작 (components/ThemeToggle.tsx · app/layout.tsx THEME_SCRIPT). OS 설정은 인라인 스크립트가 반영하므로 @media prefers-color-scheme 은 쓰지 않는다 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------- 테마 토큰: 라이트 기본, html.dark 에서 덮어씀 (HAENGLIM 허브와 같은 이름·값) ---------- */
+:root {
+  --brand: #ec6c1e;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --ink: #111111;
+  --ink-2: #1f2937;
+  --muted: #6b7280;
+  --muted-2: #9ca3af;
+  --line: #e5e7eb;
+  --line-2: #f0f1f3;
+  --line-3: #d9dce1;
+  --brand-soft: #fff7f2;
+  --brand-line: #f6c9ad;
+  --brand-ink: #9a6a4a;
+  --danger: #b42318;
+  --danger-bg: #fff1f0;
+  --info: #4f46e5;
+  --info-bg: #eef2ff;
+  --overlay: rgba(255, 255, 255, 0.85);
+  /* 지도 주변 (Leaflet 컨테이너 바탕·툴팁·라벨) */
+  --map-bg: #eef0f3;
   --font-sans: "Pretendard", "Pretendard Variable", -apple-system, BlinkMacSystemFont, "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  color-scheme: light;
+}
+html.dark {
+  --bg: #0f1115;
+  --surface: #171a21;
+  --surface-2: #1e222b;
+  --ink: #f3f4f6;
+  --ink-2: #d1d5db;
+  --muted: #9ca3af;
+  --muted-2: #6b7280;
+  --line: #2a2f3a;
+  --line-2: #232833;
+  --line-3: #3a404d;
+  --brand-soft: #2a1d14;
+  --brand-line: #6b3d1e;
+  --brand-ink: #f0b48c;
+  --danger: #f87171;
+  --danger-bg: #3a1512;
+  --info: #a5b4fc;
+  --info-bg: #1c1f3a;
+  --overlay: rgba(23, 26, 33, 0.85);
+  --map-bg: #14171d;
+  color-scheme: dark;
+}
+html.theme-anim,
+html.theme-anim body,
+html.theme-anim * {
+  transition:
+    background-color 220ms ease,
+    border-color 220ms ease,
+    color 220ms ease !important;
+}
+
+@theme inline {
+  --color-brand: var(--brand);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-line-3: var(--line-3);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-sans);
 }
 
 html,
@@ -10,21 +81,29 @@ body {
   height: 100%;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  color-scheme: light;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
 }
 
 /* Leaflet */
 .leaflet-container {
   font-family: var(--font-sans);
-  background: #eef0f3;
+  background: var(--map-bg);
+}
+/* 다크: 기본(V-World 기본·OSM) 타일만 CSS 반전으로 어둡게. 위성은 그대로 (MapView 가 rm-dark-tiles 를 붙였다 뗀다).
+   폴리곤(canvas 오버레이)·마커·라벨·툴팁은 다른 pane 이라 영향 없음 */
+html.dark .rm-dark-tiles .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.9) saturate(0.8);
 }
 .leaflet-tooltip.rm-tip {
   padding: 4px 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #111;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #ddd;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-3);
   border-radius: 6px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
@@ -46,44 +125,68 @@ body {
   padding: 2px 6px 2px 5px;
   border-left: 3px solid #999;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.94);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.25;
-  color: #222;
+  color: var(--ink);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
   cursor: pointer;
 }
 .rm-label span b {
   font-weight: 400;
-  color: #666;
+  color: var(--muted);
 }
 .rm-label span:hover {
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
 }
 /* 폴리곤 없는 사업장의 라벨은 원 마커 위에 */
 .rm-label.rm-label-pt span {
   transform: translate(-50%, -170%);
 }
-.leaflet-control-zoom a {
-  color: #333;
+/* 확대·축소 버튼, 축척, 출처 표기 — 토큰으로 (leaflet.css 의 #fff·#333 덮어씀) */
+.leaflet-bar a,
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  color: var(--ink-2);
+  background-color: var(--surface);
+  border-bottom-color: var(--line);
 }
-.leaflet-control-attribution {
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  background-color: var(--surface-2);
+}
+.leaflet-bar a.leaflet-disabled {
+  background-color: var(--surface-2);
+  color: var(--muted-2);
+}
+.leaflet-touch .leaflet-bar {
+  border-color: color-mix(in srgb, var(--ink) 20%, transparent);
+}
+.leaflet-control-attribution,
+.leaflet-control-scale-line {
+  color: var(--ink-2);
+}
+.leaflet-container .leaflet-control-attribution {
   font-size: 10px;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.leaflet-control-scale-line {
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border-color: var(--muted);
 }
 
 /* 스크롤바 */
 .rm-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #c9ccd1 transparent;
+  scrollbar-color: var(--line-3) transparent;
 }
 .rm-scroll::-webkit-scrollbar {
   width: 8px;
 }
 .rm-scroll::-webkit-scrollbar-thumb {
-  background: #c9ccd1;
+  background: var(--line-3);
   border-radius: 8px;
 }
 
@@ -95,24 +198,24 @@ body {
   align-items: center;
   gap: 5px;
   padding: 3px 9px;
-  border: 1px solid #d9dce1;
+  border: 1px solid var(--line-3);
   border-radius: 999px;
-  background: #fff;
+  background: var(--surface);
   font-size: 12px;
   line-height: 1.2;
-  color: #333;
+  color: var(--ink-2);
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
   transition: background 0.12s, border-color 0.12s;
 }
 .chip:hover {
-  background: #f5f6f8;
+  background: var(--surface-2);
 }
 .chip.on {
-  background: #111;
-  border-color: #111;
-  color: #fff;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
 }
 .chip .dot {
   width: 9px;
@@ -133,17 +236,17 @@ body {
   align-items: center;
   gap: 6px;
   padding: 7px 11px;
-  border: 1px solid #d9dce1;
+  border: 1px solid var(--line-3);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   font-size: 12.5px;
   font-weight: 600;
-  color: #222;
+  color: var(--ink);
   white-space: nowrap;
   cursor: pointer;
 }
 .btn:hover {
-  background: #f5f6f8;
+  background: var(--surface-2);
 }
 .btn.primary {
   background: var(--color-brand);
@@ -183,8 +286,8 @@ html.hl-splash .splash {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #fff;
-  color: #111;
+  background: var(--bg);
+  color: var(--ink);
   cursor: pointer;
   user-select: none;
   font-family: var(--font-sans);
@@ -223,7 +326,7 @@ html.hl-splash .splash.splash-out {
 .splash-grid {
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(#e8eaee 1px, transparent 1px), linear-gradient(90deg, #e8eaee 1px, transparent 1px);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
   background-size: 24px 24px;
   mask-image: radial-gradient(ellipse at center, #000 45%, transparent 78%);
   -webkit-mask-image: radial-gradient(ellipse at center, #000 45%, transparent 78%);
@@ -270,7 +373,7 @@ html.hl-splash .splash.splash-out {
   height: 11px;
   margin: -5.5px 0 0 -5.5px;
   border-radius: 999px;
-  border: 2px solid #fff;
+  border: 2px solid var(--bg);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
   transform: scale(0);
   animation: splash-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(1.15s + var(--i) * 0.07s) forwards;
@@ -310,7 +413,7 @@ html.hl-splash .splash.splash-out {
   width: 100%;
   height: 3px;
   margin-top: 12px;
-  background: #111;
+  background: var(--ink);
   transform: scaleX(0);
   transform-origin: left center;
   animation: splash-line 1100ms cubic-bezier(0.65, 0, 0.2, 1) 2.45s forwards;
@@ -324,7 +427,7 @@ html.hl-splash .splash.splash-out {
   margin-top: 12px;
   font-size: clamp(17px, 3.2vw, 24px);
   font-weight: 800;
-  color: #111;
+  color: var(--ink);
   letter-spacing: 0.7em;
   opacity: 0;
   animation: splash-title 900ms cubic-bezier(0.2, 0.8, 0.2, 1) 2.6s forwards;
@@ -339,7 +442,7 @@ html.hl-splash .splash.splash-out {
   margin-top: 6px;
   font-size: clamp(11px, 2vw, 13px);
   font-weight: 600;
-  color: #6b7280;
+  color: var(--muted);
   letter-spacing: 0.9em;
   opacity: 0;
   animation: splash-dept 1000ms cubic-bezier(0.2, 0.8, 0.2, 1) 2.95s forwards;
@@ -354,7 +457,7 @@ html.hl-splash .splash.splash-out {
   position: absolute;
   bottom: 28px;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--muted-2);
   opacity: 0;
   animation: splash-fade-in 600ms ease-out 1.2s forwards;
 }
@@ -368,7 +471,7 @@ html.hl-splash .splash.splash-out {
   }
 }
 .skel {
-  background: linear-gradient(90deg, #f0f1f3 25%, #e4e6ea 37%, #f0f1f3 63%);
+  background: linear-gradient(90deg, var(--line-2) 25%, var(--line) 37%, var(--line-2) 63%);
   background-size: 400px 100%;
   animation: rm-skel 1.2s infinite linear;
   border-radius: 6px;
@@ -387,4 +490,47 @@ html.hl-splash .splash.splash-out {
 .rm-picking .leaflet-container,
 .rm-picking .leaflet-interactive {
   cursor: crosshair !important;
+}
+
+/* ---------- 다크·라이트 토글 (components/ThemeToggle.tsx — 허브와 동일) ---------- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px 0 3px;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 200ms,
+    color 200ms;
+}
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  border-color: var(--brand);
+  color: var(--ink);
+  outline: none;
+}
+.theme-toggle-knob {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.theme-toggle-knob svg {
+  width: 13px;
+  height: 13px;
+}
+.theme-toggle.on .theme-toggle-knob {
+  background: var(--brand);
+  color: #fff;
 }

@@ -12,7 +12,19 @@ export const metadata: Metadata = {
   icons: { icon: [{ url: "/icons/hub-192.png", sizes: "192x192", type: "image/png" }] },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, maximumScale: 1, themeColor: "#ffffff" };
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f1115" },
+  ],
+};
+
+/** 첫 그림 전에 테마 결정: ?theme= > localStorage(hub-theme) > OS 설정. 깜빡임 방지용 인라인 스크립트 (허브와 동일, components/ThemeToggle.tsx) */
+const THEME_SCRIPT =
+  '(function(){try{var q=new URLSearchParams(location.search).get("theme");var t=q==="dark"||q==="light"?q:localStorage.getItem("hub-theme");if(q==="dark"||q==="light")localStorage.setItem("hub-theme",q);if(t!=="dark"&&t!=="light")t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})()';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,10 +35,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
           crossOrigin="anonymous"
         />
-        {/* 진입 인트로 게이트: 본문이 그려지기 전에 동기 실행되어 <html class="hl-splash"> + 흰 덮개를 붙임 */}
+        {/* 테마 먼저(html.dark) — 인트로 게이트가 덮개 색을 테마에 맞추므로 순서 유지 */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        {/* 진입 인트로 게이트: 본문이 그려지기 전에 동기 실행되어 <html class="hl-splash"> + 바탕색 덮개를 붙임 */}
         <script dangerouslySetInnerHTML={{ __html: SPLASH_GATE }} />
       </head>
-      <body className="h-full overflow-hidden bg-white text-gray-900">
+      <body className="h-full overflow-hidden bg-bg text-ink">
         <SplashIntro />
         {children}
       </body>

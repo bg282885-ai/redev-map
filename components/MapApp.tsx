@@ -11,6 +11,7 @@ import {
 } from "@/lib/zones";
 import DetailPanel from "./DetailPanel";
 import Roadview, { ROADVIEW_EMBEDDED } from "./Roadview";
+import { ThemeToggle } from "./ThemeToggle";
 import * as links from "@/lib/links";
 import type { BaseKey, Focus } from "./MapView";
 
@@ -19,7 +20,7 @@ const HUB_URL = process.env.NEXT_PUBLIC_HUB_URL || "https://haenglim-hub.vercel.
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">지도 불러오는 중…</div>,
+  loading: () => <div className="absolute inset-0 flex items-center justify-center text-sm text-muted">지도 불러오는 중…</div>,
 });
 
 const LIST_LIMIT = 300;
@@ -456,36 +457,37 @@ export default function MapApp() {
   return (
     <div className="flex h-full flex-col">
       {/* ---------- 상단 ---------- */}
-      <header className="z-30 border-b border-gray-200 bg-white px-3 py-2 lg:px-4">
+      <header className="z-30 border-b border-line bg-surface px-3 py-2 lg:px-4">
         <div className="flex flex-wrap items-center gap-2 lg:gap-3">
           <button type="button" className="flex flex-none items-baseline gap-1.5 whitespace-nowrap" onClick={() => { resetFilters(); setSel(null); }} title="처음으로">
             <span className="text-[17px] font-black tracking-tight text-brand">HAENGLIM</span>
-            <span className="text-[14px] font-bold text-gray-900">정비사업 지도</span>
-            <span className="hidden text-[11px] text-gray-400 lg:inline">서울·경기·인천 재개발·재건축 구역 · 고시</span>
+            <span className="text-[14px] font-bold text-ink">정비사업 지도</span>
+            <span className="hidden text-[11px] text-muted-2 lg:inline">서울·경기·인천 재개발·재건축 구역 · 고시</span>
           </button>
           <div className="relative order-last min-w-0 basis-full sm:order-none sm:basis-auto sm:flex-1 lg:max-w-md">
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="구역명·사업장명·지번 검색 (예: 개포주공, 한남3, 아현동)"
-              className="w-full rounded-lg border border-gray-300 bg-gray-50 py-1.5 pl-3 pr-8 text-[13px] outline-none focus:border-brand focus:bg-white"
+              className="w-full rounded-lg border border-line-3 bg-surface-2 py-1.5 pl-3 pr-8 text-[13px] text-ink outline-none placeholder:text-muted-2 focus:border-brand focus:bg-surface"
               aria-label="검색"
             />
             {q && (
-              <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700" aria-label="검색어 지우기">
+              <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-2 hover:text-ink-2" aria-label="검색어 지우기">
                 ✕
               </button>
             )}
           </div>
           <div className="hidden items-center gap-1.5 sm:flex">
-            {renderRegionSelects("rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-[13px]")}
+            {renderRegionSelects("rounded-lg border border-line-3 bg-surface px-2 py-1.5 text-[13px] text-ink")}
           </div>
           <div className="ml-auto flex flex-none items-center gap-1.5">
+            <ThemeToggle className="!h-[26px]" />
             <a href={HUB_URL} className="chip" title="HAENGLIM 허브로" aria-label="HAENGLIM 홈">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 3l9 8" /><path d="M5 10v10h14V10" /></svg>
               <span className="hidden sm:inline">HAENGLIM 홈</span>
             </a>
-            <select value={base} onChange={(e) => setBase(e.target.value as BaseKey)} className="hidden rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-[12px] md:block" aria-label="배경지도">
+            <select value={base} onChange={(e) => setBase(e.target.value as BaseKey)} className="hidden rounded-lg border border-line-3 bg-surface px-2 py-1.5 text-[12px] text-ink md:block" aria-label="배경지도">
               <option value="vBase">V-World 기본</option>
               <option value="vSat">V-World 위성</option>
               <option value="osm">OpenStreetMap</option>
@@ -538,8 +540,8 @@ export default function MapApp() {
 
         <div className={`${filtersOpen ? "flex" : "hidden"} mt-2 flex-col gap-1.5 lg:flex`}>
           <div className="flex flex-wrap items-center gap-1.5 sm:hidden">
-            {renderRegionSelects("rounded-lg border border-gray-300 bg-white px-2 py-1 text-[12px]")}
-            <select value={base} onChange={(e) => setBase(e.target.value as BaseKey)} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-[12px]" aria-label="배경지도">
+            {renderRegionSelects("rounded-lg border border-line-3 bg-surface px-2 py-1 text-[12px] text-ink")}
+            <select value={base} onChange={(e) => setBase(e.target.value as BaseKey)} className="rounded-lg border border-line-3 bg-surface px-2 py-1 text-[12px] text-ink" aria-label="배경지도">
               <option value="vBase">V-World 기본</option>
               <option value="vSat">V-World 위성</option>
               <option value="osm">OpenStreetMap</option>
@@ -548,11 +550,11 @@ export default function MapApp() {
             <button className={`chip ${showMarkers ? "on" : ""}`} onClick={() => setShowMarkers(!showMarkers)}>사업장</button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="w-14 text-[11px] font-bold text-gray-400">진행단계</span>
+            <span className="w-14 text-[11px] font-bold text-muted-2">진행단계</span>
             {PHASE_ORDER.map((ph) => (
               <button
                 key={ph}
-                className={`chip ${phases.has(ph) ? "on" : ""} ${ph === "완공" ? "ml-1 !border-emerald-300" : ""}`}
+                className={`chip ${phases.has(ph) ? "on" : ""} ${ph === "완공" ? "ml-1 !border-emerald-300 dark:!border-emerald-700" : ""}`}
                 onClick={() => toggle(phases, ph, setPhases)}
                 title={PHASE_DESC[ph]}
               >
@@ -564,15 +566,15 @@ export default function MapApp() {
             <button className={`chip !border-dashed ${stagesOpen || stages.size ? "on" : ""}`} onClick={() => setStagesOpen(!stagesOpen)} title="계획·추진위·조합·시행… 세부 단계로 고르기">
               세부단계{stages.size ? ` ${stages.size}` : ""} {stagesOpen ? "▴" : "▾"}
             </button>
-            <span className="hidden text-[11px] text-gray-400 xl:inline">
+            <span className="hidden text-[11px] text-muted-2 xl:inline">
               {stages.size ? "세부 단계를 골라 국면 대신 적용 중" : phases.size ? PHASE_DESC[[...phases][0]] : `완공(준공·청산)된 곳은 숨김 — 보려면 '완공' 칩`}
             </span>
           </div>
           {stagesOpen && (
             <div className="flex flex-wrap items-center gap-1.5 pl-14">
               {PHASE_ORDER.map((ph) => (
-                <span key={ph} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-200 px-1.5 py-0.5">
-                  <span className="text-[10px] font-bold text-gray-400">{ph}</span>
+                <span key={ph} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-line px-1.5 py-0.5">
+                  <span className="text-[10px] font-bold text-muted-2">{ph}</span>
                   {PHASE_STAGES[ph].map((s) => (
                     <button key={s} className={`chip ${stages.has(s) ? "on" : ""}`} onClick={() => toggle(stages, s, setStages)} title={STAGE_DESC[s]}>
                       <span className="dot" style={{ background: STAGE_COLOR[s] }} />
@@ -584,14 +586,14 @@ export default function MapApp() {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="w-14 text-[11px] font-bold text-gray-400">사업구분</span>
+            <span className="w-14 text-[11px] font-bold text-muted-2">사업구분</span>
             {KIND_LIST.map((k) => (
               <button key={k} className={`chip ${kinds.has(k) ? "on" : ""}`} onClick={() => toggle(kinds, k, setKinds)}>
                 {kindShort(k)}
               </button>
             ))}
-            <span className="mx-1 h-4 w-px bg-gray-200" aria-hidden="true" />
-            <span className="text-[11px] font-bold text-gray-400" title="사업장 이름·구분에 표기된 방식만 잡힙니다">방식</span>
+            <span className="mx-1 h-4 w-px bg-line" aria-hidden="true" />
+            <span className="text-[11px] font-bold text-muted-2" title="사업장 이름·구분에 표기된 방식만 잡힙니다">방식</span>
             {TAG_LIST.map((t) => (
               <button key={t} className={`chip ${tags.has(t) ? "on" : "text-brand"}`} onClick={() => toggle(tags, t, setTags)} title="사업장 이름에 이 방식이 표기된 곳">
                 {t}
@@ -599,7 +601,7 @@ export default function MapApp() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="w-14 text-[11px] font-bold text-gray-400">구역유형</span>
+            <span className="w-14 text-[11px] font-bold text-muted-2">구역유형</span>
             {CATEGORY_ORDER.map((c) => (
               <button key={c} className={`chip ${cats.has(c) ? "on" : ""}`} onClick={() => toggle(cats, c, setCats)}>
                 <span className="sq" style={{ background: CATEGORY_COLOR[c] }} />
@@ -611,7 +613,7 @@ export default function MapApp() {
                 초기화 ✕
               </button>
             )}
-            <span className="ml-auto hidden text-[11px] text-gray-400 lg:inline">
+            <span className="ml-auto hidden text-[11px] text-muted-2 lg:inline">
               구역 {zoneCount.toLocaleString()} · 사업장 {filteredProjects.length.toLocaleString()}
               {hiddenDone > 0 ? ` (완공 ${hiddenDone.toLocaleString()} 숨김)` : ""}
               {meta?.builtAt ? ` · 자료 ${meta.builtAt.slice(0, 10)}` : ""}
@@ -651,25 +653,25 @@ export default function MapApp() {
         )}
 
         {!zones && !loadErr && (
-          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-white/95 px-4 py-1.5 text-xs text-gray-600 shadow">
+          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface/95 px-4 py-1.5 text-xs text-muted shadow">
             구역 자료 불러오는 중…
           </div>
         )}
         {loadErr && (
-          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-red-50 px-4 py-1.5 text-xs text-red-700 shadow">
+          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-red-50 px-4 py-1.5 text-xs text-red-700 dark:bg-red-950/70 dark:text-red-300 shadow">
             자료를 불러오지 못했습니다: {loadErr}
           </div>
         )}
 
         {/* ---------- 목록 ---------- */}
         <aside
-          className={`${listOpen ? "flex" : "hidden"} absolute inset-x-0 top-0 bottom-0 z-20 flex-col bg-white lg:inset-auto lg:left-3 lg:top-3 lg:bottom-3 lg:flex lg:w-[320px] lg:rounded-xl lg:border lg:border-gray-200 lg:bg-white/95 lg:shadow-lg`}
+          className={`${listOpen ? "flex" : "hidden"} absolute inset-x-0 top-0 bottom-0 z-20 flex-col bg-surface lg:inset-auto lg:left-3 lg:top-3 lg:bottom-3 lg:flex lg:w-[320px] lg:rounded-xl lg:border lg:border-line lg:bg-surface/95 lg:shadow-lg`}
           aria-label="사업장 목록"
         >
-          <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
-            <div className="text-[12px] font-bold text-gray-600">
+          <div className="flex items-center justify-between border-b border-line-2 px-3 py-2">
+            <div className="text-[12px] font-bold text-muted">
               사업장 {filteredProjects.length.toLocaleString()}건
-              {matchedZones.length > 0 && <span className="ml-1 font-normal text-gray-400">· 구역 {matchedZones.length}건</span>}
+              {matchedZones.length > 0 && <span className="ml-1 font-normal text-muted-2">· 구역 {matchedZones.length}건</span>}
             </div>
             <button className="chip lg:hidden" onClick={() => setListOpen(false)}>
               닫기
@@ -677,8 +679,8 @@ export default function MapApp() {
           </div>
           <div className="rm-scroll min-h-0 flex-1 overflow-y-auto">
             {matchedZones.length > 0 && (
-              <div className="border-b border-gray-100">
-                <div className="px-3 pt-2 text-[11px] font-bold text-gray-400">정비구역 (이름 일치)</div>
+              <div className="border-b border-line-2">
+                <div className="px-3 pt-2 text-[11px] font-bold text-muted-2">정비구역 (이름 일치)</div>
                 <ul>
                   {matchedZones.slice(0, 40).map((f) => {
                     const c = zoneCategory(f.properties.code);
@@ -687,12 +689,12 @@ export default function MapApp() {
                       <li key={f.properties.fid}>
                         <button
                           onClick={() => selectZone(f.properties.fid, true)}
-                          className={`flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-gray-50 ${sel?.type === "zone" && sel.fid === f.properties.fid ? "bg-orange-50" : ""}`}
+                          className={`flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${sel?.type === "zone" && sel.fid === f.properties.fid ? "bg-orange-50 dark:bg-orange-950/40" : ""}`}
                         >
                           <span className="mt-1 inline-block h-2.5 w-2.5 flex-none rounded-[2px]" style={{ background: CATEGORY_COLOR[c] }} />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] font-semibold text-gray-800">{f.properties.name || "(이름 없음)"}</span>
-                            <span className="block text-[11px] text-gray-500">
+                            <span className="block truncate text-[13px] font-semibold text-ink-2">{f.properties.name || "(이름 없음)"}</span>
+                            <span className="block text-[11px] text-muted">
                               {c} · {Math.round(f.properties.area).toLocaleString()}㎡{linked ? ` · 사업장 ${linked}` : ""}
                             </span>
                           </span>
@@ -704,7 +706,7 @@ export default function MapApp() {
               </div>
             )}
             {listProjects.length === 0 && zones && (
-              <p className="px-3 py-6 text-center text-xs text-gray-400">
+              <p className="px-3 py-6 text-center text-xs text-muted-2">
                 조건에 맞는 사업장이 없습니다.
                 {hiddenDone > 0 && (
                   <>
@@ -722,12 +724,12 @@ export default function MapApp() {
                 <li key={p.no}>
                   <button
                     onClick={() => selectProject(p.no, true)}
-                    className={`flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-gray-50 ${sel?.type === "project" && sel.no === p.no ? "bg-orange-50" : ""}`}
+                    className={`flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${sel?.type === "project" && sel.no === p.no ? "bg-orange-50 dark:bg-orange-950/40" : ""}`}
                   >
                     <span className="mt-1 inline-block h-2.5 w-2.5 flex-none rounded-full" style={{ background: STAGE_COLOR[stageGroup(p.stage)] }} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-semibold text-gray-800">{p.name}</span>
-                      <span className="block truncate text-[11px] text-gray-500">
+                      <span className="block truncate text-[13px] font-semibold text-ink-2">{p.name}</span>
+                      <span className="block truncate text-[11px] text-muted">
                         {p.sido && p.sido !== "서울" ? `${p.sido} ` : ""}
                         {p.gu} · {kindShort(p.kind)} · {stageText(p)}
                         {p.zoneFid ? "" : " · 구역 미연결"}
@@ -803,7 +805,7 @@ export default function MapApp() {
 
 function Legend() {
   return (
-    <div className="border-t border-gray-100 px-3 py-2 text-[11px] text-gray-600">
+    <div className="border-t border-line-2 px-3 py-2 text-[11px] text-muted">
       <div className="mb-1 flex flex-wrap gap-x-2.5 gap-y-1">
         {CATEGORY_ORDER.map((c) => (
           <span key={c} className="inline-flex items-center gap-1">
@@ -815,7 +817,7 @@ function Legend() {
       <div className="flex flex-wrap gap-x-2.5 gap-y-1">
         {PHASE_ORDER.map((ph) => (
           <span key={ph} className="inline-flex items-center gap-1" title={PHASE_DESC[ph]}>
-            <span className="font-bold text-gray-400">{ph}</span>
+            <span className="font-bold text-muted-2">{ph}</span>
             {PHASE_STAGES[ph]
               .filter((s) => s !== "기타")
               .map((s) => (
@@ -827,11 +829,11 @@ function Legend() {
           </span>
         ))}
       </div>
-      <p className="mt-1 text-[10px] leading-snug text-gray-400">
-        <span className="font-semibold text-gray-500">● 점</span> = 사업장 대표 위치. 경계 자료가 없는 사업장(모아타운·소규모·경기·인천 대부분)은 점만 보이며, 점선 테두리 점은 대략 위치(모아타운
+      <p className="mt-1 text-[10px] leading-snug text-muted-2">
+        <span className="font-semibold text-muted">● 점</span> = 사업장 대표 위치. 경계 자료가 없는 사업장(모아타운·소규모·경기·인천 대부분)은 점만 보이며, 점선 테두리 점은 대략 위치(모아타운
         대상지·지번 합병). 다른 구역 경계 안이나 가에 찍힌 점도 그 구역과는 별개 사업이다. 확대하면 경계가 있는 곳의 점은 숨김.
         <br />
-        <span className="font-semibold text-gray-500">▰ 면</span> = 경계. 실선 = 정비구역, 긴 점선 = 특별계획구역, 짧은 점선 = 대표지번 필지(정비구역 미지정 단지), 점 점선 = 서울플랜+ 도시계획사업
+        <span className="font-semibold text-muted">▰ 면</span> = 경계. 실선 = 정비구역, 긴 점선 = 특별계획구역, 짧은 점선 = 대표지번 필지(정비구역 미지정 단지), 점 점선 = 서울플랜+ 도시계획사업
         도형(모아타운·신통기획 대상지·가로주택·소규모·역세권·리모델링 등, 지정 전 단계는 검토 범위). 완공·취소·{OLD_ZONE_YEAR}년 이전 과거 구역은 흐리게, 기본은 숨김. 확대하면 이름 라벨 — 둘째 항목은 보정 결과(준공·착공)나 최근 동향이며, 원자료 단계는 상세 패널에서 확인.
       </p>
     </div>
