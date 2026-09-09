@@ -28,6 +28,11 @@ type Props = {
   onSelectZone: (fid: string) => void;
   onSelectProject: (no: number) => void;
   onBaseFail: () => void;
+  /** 로드뷰 지점 선택 모드 — 지도(폴리곤·마커 포함)를 클릭하면 선택 대신 onPick(lat, lng) */
+  picking?: boolean;
+  onPick?: (lat: number, lng: number) => void;
+  /** 로드뷰가 보고 있는 지점 (파란 점) */
+  roadviewPos?: { lat: number; lng: number } | null;
 };
 
 /* 수도권 전체(서울·경기·인천)가 보이는 초기 화면 */
@@ -114,10 +119,21 @@ export default function MapView(p: Props) {
   const markerByNo = useRef(new Map<number, L.CircleMarker>());
   /* 콜백·패널 상태는 ref 로 들고 다닌다 (지도 이벤트 핸들러가 최신 값을 보도록). 아래 sync 함수들이 참조하므로 먼저 선언 */
   const panelOpenRef = useRef(p.panelOpen);
-  const cb = useRef({ onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail });
+  const cb = useRef({ onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail, onPick: p.onPick });
   useEffect(() => {
-    cb.current = { onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail };
+    cb.current = { onSelectZone: p.onSelectZone, onSelectProject: p.onSelectProject, onBaseFail: p.onBaseFail, onPick: p.onPick };
   });
+  /* 로드뷰 지점 선택 모드: 클릭 핸들러들이 선택 대신 지점을 넘긴다 */
+  const pickingRef = useRef(!!p.picking);
+  useEffect(() => {
+    pickingRef.current = !!p.picking;
+  }, [p.picking]);
+  const pickAt = (e: L.LeafletMouseEvent) => {
+    if (!pickingRef.current) return false;
+    cb.current.onPick?.(e.latlng.lat, e.latlng.lng);
+    return true;
+  };
+  const rvMarkerRef = useRef<L.Marker | null>(null);
   useEffect(() => {
     panelOpenRef.current = p.panelOpen;
   }, [p.panelOpen]);
@@ -161,6 +177,7 @@ export default function MapView(p: Props) {
         const m = L.marker(c, { icon: labelIcon(text, CATEGORY_COLOR[zoneCategory(fp.code)], false), keyboard: false });
         m.on("click", (e) => {
           L.DomEvent.stopPropagation(e);
+          if (pickAt(e)) return;
           cb.current.onSelectZone(fp.fid);
         });
         group.addLayer(m);
@@ -177,6 +194,7 @@ export default function MapView(p: Props) {
         const m = L.marker(c, { icon: labelIcon(text, STAGE_COLOR[stageGroup(pr.stage)], true), keyboard: false });
         m.on("click", (e) => {
           L.DomEvent.stopPropagation(e);
+          if (pickAt(e)) return;
           cb.current.onSelectProject(pr.no);
         });
         group.addLayer(m);
@@ -210,6 +228,9 @@ export default function MapView(p: Props) {
         L.control.scale({ imperial: false, position: "bottomright" }).addTo(map);
         map.on("zoomend", syncLinkedMarkers);
         map.on("moveend", syncLabels);
+        map.on("click", (e) => {
+          pickAt(e);
+        });
         mapRef.current = map;
         createdAt.current = Date.now();
         (window as unknown as { __rmMap?: L.Map }).__rmMap = map; // 디버깅용
@@ -241,9 +262,29 @@ export default function MapView(p: Props) {
       freeMarkersRef.current = null;
       linkedMarkersRef.current = null;
       labelLayerRef.current = null;
+      rvMarkerRef.current = null;
       mb.clear();
     };
   }, []);
+
+  /* 로드뷰 지점 표시 */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (rvMarkerRef.current) {
+      map.removeLayer(rvMarkerRef.current);
+      rvMarkerRef.current = null;
+    }
+    if (!p.roadviewPos) return;
+    const m = L.marker([p.roadviewPos.lat, p.roadviewPos.lng], {
+      icon: L.divIcon({ className: "rm-rv-marker", html: "<span></span>", iconSize: [18, 18], iconAnchor: [9, 9] }),
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 1000,
+    });
+    m.addTo(map);
+    rvMarkerRef.current = m;
+  }, [p.roadviewPos, ready]);
 
   /* 배경지도 */
   useEffect(() => {
@@ -300,6 +341,7 @@ export default function MapView(p: Props) {
         zoneByFid.current.set(zf.properties.fid, lyr as L.Path);
         lyr.on("click", (e) => {
           L.DomEvent.stopPropagation(e);
+          if (pickAt(e)) return;
           cb.current.onSelectZone(zf.properties.fid);
         });
         const sub = p.zoneSub.get(zf.properties.fid);
@@ -335,6 +377,7 @@ export default function MapView(p: Props) {
       const m = L.circleMarker([pr.lat, pr.lng], markerStyle(pr));
       m.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
+        if (pickAt(e)) return;
         cb.current.onSelectProject(pr.no);
       });
       const c = correctionOf(pr);
@@ -410,5 +453,6 @@ export default function MapView(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.focus, ready]);
 
-  return <div ref={elRef} className="absolute inset-0 z-0" />;
+  // 클래스는 통째 문자열로 — 템플릿 리터럴 안에 `z-0${…}` 처럼 붙여 쓰면 Tailwind 가 z-0 을 못 찾아 지도가 패널 위로 올라온다 (2026-09-09)
+  return <div ref={elRef} className={"absolute inset-0 z-0" + (p.picking ? " rm-picking" : "")} />;
 }

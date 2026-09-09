@@ -83,6 +83,9 @@ export const newsSearch = (q: string) => `https://search.naver.com/search.naver?
 export const naverMap = (lat: number, lng: number, name: string) =>
   `https://map.naver.com/p/search/${enc(name)}?c=${lng},${lat},16,0,0,0,dh`;
 
+/** 카카오맵 로드뷰 (좌표) — 지도 안 로드뷰 창(components/Roadview)이 없을 때 새 창으로 */
+export const kakaoRoadview = (lat: number, lng: number) => `https://map.kakao.com/link/roadview/${lat.toFixed(6)},${lng.toFixed(6)}`;
+
 /** 대지 법령 내비게이터 (site-law) — 법정동 코드·지번·PNU 로 바로 조회 */
 const SIDO_FULL_NM: Record<string, string> = { 서울: "서울특별시", 경기: "경기도", 인천: "인천광역시" };
 export const siteLaw = (p: { gu: string; jibun: string; kind: string; emdCode?: string | null; pnu?: string | null; sido?: string }) => {

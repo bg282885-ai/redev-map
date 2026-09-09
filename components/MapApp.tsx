@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeLog, DataMeta, Project, RecentItem, Selection, Sido, ZoneCollection, ZoneFeature } from "@/lib/types";
 import UpdatesPanel from "./UpdatesPanel";
 import {
@@ -10,6 +10,8 @@ import {
   type Phase, type StageGroup, type Tag, type ZoneCategory, type ZoneStatus,
 } from "@/lib/zones";
 import DetailPanel from "./DetailPanel";
+import Roadview, { ROADVIEW_EMBEDDED } from "./Roadview";
+import * as links from "@/lib/links";
 import type { BaseKey, Focus } from "./MapView";
 
 /** HAENGLIM 허브(홈) 주소 — 로컬은 .env.local 의 NEXT_PUBLIC_HUB_URL 로 바꿈 */
@@ -48,6 +50,13 @@ export default function MapApp() {
 
   const [sel, setSel] = useState<Selection | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
+  /* 로드뷰: 보고 있는 지점, 지도 클릭으로 지점을 고르는 모드 */
+  const [rv, setRv] = useState<{ lat: number; lng: number } | null>(null);
+  const [rvPick, setRvPick] = useState(false);
+  const rvPickRef = useRef(false); // 키보드 핸들러(의존성 없는 effect)가 최신 값을 보도록
+  useEffect(() => {
+    rvPickRef.current = rvPick;
+  }, [rvPick]);
 
   /* ---------- 업데이트 알림 ---------- */
   const [updatesOpen, setUpdatesOpen] = useState(false);
@@ -315,6 +324,31 @@ export default function MapApp() {
     [],
   );
 
+  /* ---------- 로드뷰 ---------- */
+  /* 로드뷰가 바라볼 대상: 선택된 사업장 좌표, 없으면 구역 중심 */
+  const rvTarget = useMemo(() => {
+    if (selProject && selProject.lat != null && selProject.lng != null) return { lat: selProject.lat, lng: selProject.lng, name: selProject.name };
+    if (selZone) {
+      const b = selZone.properties.bbox;
+      return { lat: (b[1] + b[3]) / 2, lng: (b[0] + b[2]) / 2, name: selZone.properties.name };
+    }
+    return null;
+  }, [selProject, selZone]);
+  const openRoadview = useCallback(() => {
+    if (!rvTarget) return;
+    // 카카오맵 키가 없으면 카카오맵 사이트의 로드뷰를 새 창으로
+    if (!ROADVIEW_EMBEDDED) {
+      window.open(links.kakaoRoadview(rvTarget.lat, rvTarget.lng), "_blank", "noreferrer");
+      return;
+    }
+    setRv({ lat: rvTarget.lat, lng: rvTarget.lng });
+    setRvPick(false);
+  }, [rvTarget]);
+  const pickRoadview = useCallback((lat: number, lng: number) => {
+    setRvPick(false);
+    setRv({ lat, lng });
+  }, []);
+
   const selectZone = useCallback(
     (fid: string, fly: boolean) => {
       setSel({ type: "zone", fid });
@@ -359,7 +393,10 @@ export default function MapApp() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSel(null);
+      if (e.key === "Escape") {
+        if (rvPickRef.current) setRvPick(false);
+        else setSel(null);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -584,7 +621,15 @@ export default function MapApp() {
           onSelectZone={selectZoneFromMap}
           onSelectProject={(no) => selectProject(no, false)}
           onBaseFail={() => setBase("osm")}
+          picking={rvPick}
+          onPick={pickRoadview}
+          roadviewPos={rv}
         />
+        {rvPick && (
+          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow">
+            로드뷰로 볼 지점을 지도에서 클릭하세요 (Esc 취소)
+          </div>
+        )}
 
         {!zones && !loadErr && (
           <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-white/95 px-4 py-1.5 text-xs text-gray-600 shadow">
@@ -714,6 +759,22 @@ export default function MapApp() {
             onSelectProject={(no) => selectProject(no, true)}
             onSelectZone={(fid) => selectZone(fid, true)}
             onFocus={() => focusOn(selProject, selZone)}
+            onRoadview={rvTarget ? openRoadview : undefined}
+          />
+        )}
+
+        {rv && ROADVIEW_EMBEDDED && (
+          <Roadview
+            pos={rv}
+            target={rvTarget}
+            picking={rvPick}
+            onTogglePick={() => setRvPick((v) => !v)}
+            onClose={() => {
+              setRv(null);
+              setRvPick(false);
+            }}
+            openUrl={links.kakaoRoadview(rv.lat, rv.lng)}
+            panelOpen={!!sel && !updatesOpen}
           />
         )}
       </div>

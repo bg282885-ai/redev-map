@@ -373,3 +373,18 @@ html.hl-splash .splash.splash-out {
   animation: rm-skel 1.2s infinite linear;
   border-radius: 6px;
 }
+
+/* 로드뷰 — 보고 있는 지점(파란 점)과 지점 선택 모드 커서 (components/Roadview, MapView.picking) */
+.rm-rv-marker span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #2563eb, 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.rm-picking .leaflet-container,
+.rm-picking .leaflet-interactive {
+  cursor: crosshair !important;
+}

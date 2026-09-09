@@ -17,6 +17,8 @@ type Props = {
   onSelectProject: (no: number) => void;
   onSelectZone: (fid: string) => void;
   onFocus: () => void;
+  /** 로드뷰(카카오맵) 열기 — 좌표가 있을 때만 */
+  onRoadview?: () => void;
 };
 
 type NtfcDetail = {
@@ -31,7 +33,7 @@ type NtfcState = { key: string; data: NtfcDetail | null; error: string };
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export default function DetailPanel({ sel, zone, project, successor, zoneProjects, onClose, onSelectProject, onSelectZone, onFocus }: Props) {
+export default function DetailPanel({ sel, zone, project, successor, zoneProjects, onClose, onSelectProject, onSelectZone, onFocus, onRoadview }: Props) {
   const [gosi, setGosi] = useState<GosiState>({ key: "", items: [], errors: [] });
   const [sum, setSum] = useState<SumState>({ key: "", data: null, error: "" });
   const [ntfc, setNtfc] = useState<NtfcState>({ key: "", data: null, error: "" });
@@ -281,6 +283,11 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
             <a className="btn" href={links.siteLaw({ ...project, jibun: project.jibun || project.loc || "" })} target="_blank" rel="noreferrer">
               대지 법령 검토
             </a>
+          )}
+          {onRoadview && (
+            <button className="btn" onClick={onRoadview} title="카카오맵 로드뷰로 현장 거리 풍경 보기">
+              로드뷰
+            </button>
           )}
           {project?.lat != null && project.lng != null && (
             <a className="btn" href={links.naverMap(project.lat, project.lng, project.name)} target="_blank" rel="noreferrer">
