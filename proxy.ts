@@ -18,6 +18,9 @@ export async function proxy(request: NextRequest) {
   url.search = "";
   const next = request.nextUrl.pathname + request.nextUrl.search;
   if (next && next !== "/") url.searchParams.set("next", next);
+  // 허브에서 넘어온 테마는 로그인 화면에도 바로 적용되게 같이 넘긴다
+  const theme = request.nextUrl.searchParams.get("theme");
+  if (theme === "dark" || theme === "light") url.searchParams.set("theme", theme);
   return NextResponse.redirect(url);
 }
 
