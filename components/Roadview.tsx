@@ -118,11 +118,12 @@ export default function Roadview({ pos, target, picking, onTogglePick, onClose, 
       markerRef.current.setMap(null);
       markerRef.current = null;
     }
-    if (t) {
+    const dist = t ? Math.round(Math.hypot((here.lng - t.lng) * 88800, (here.lat - t.lat) * 111000)) : null;
+    // 헤더 로드뷰 버튼으로 임의 지점을 찍었을 때 선택된 사업장이 멀리(400 m 밖) 있으면 그쪽으로 돌리거나 마커를 세우지 않는다
+    if (t && dist != null && dist <= 400) {
       rv.setViewpoint({ pan: bearing(here, t), tilt: 0, zoom: 0 });
       markerRef.current = new maps.Marker({ position: new maps.LatLng(t.lat, t.lng), map: rv, title: t.name });
-      const dx = (here.lng - t.lng) * 88800, dy = (here.lat - t.lat) * 111000;
-      setPanoDist(Math.round(Math.hypot(dx, dy)));
+      setPanoDist(dist);
     } else setPanoDist(null);
   };
   const showAt = (p: LatLng) => {
@@ -194,8 +195,7 @@ export default function Roadview({ pos, target, picking, onTogglePick, onClose, 
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-1.5">
         <span className="text-[13px] font-bold text-gray-900">로드뷰</span>
         <span className="min-w-0 truncate text-[11px] text-gray-500">
-          {target?.name ?? ""}
-          {state === "ok" && panoDist != null ? ` · 촬영 지점에서 ${panoDist} m` : ""}
+          {state === "ok" && panoDist != null && target ? `${target.name} · 촬영 지점에서 ${panoDist} m` : target && panoDist == null && state === "ok" ? "선택 지점" : (target?.name ?? "")}
         </span>
         <div className="ml-auto flex flex-none items-center gap-1">
           <button className={`btn !px-2 !py-0.5 ${picking ? "primary" : ""}`} onClick={onTogglePick} title="지도를 클릭해 로드뷰 지점을 바꿉니다">

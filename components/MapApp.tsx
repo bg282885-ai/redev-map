@@ -346,6 +346,11 @@ export default function MapApp() {
   }, [rvTarget]);
   const pickRoadview = useCallback((lat: number, lng: number) => {
     setRvPick(false);
+    // 카카오맵 키가 없으면 찍은 지점의 로드뷰를 카카오맵 사이트로
+    if (!ROADVIEW_EMBEDDED) {
+      window.open(links.kakaoRoadview(lat, lng), "_blank", "noreferrer");
+      return;
+    }
     setRv({ lat, lng });
   }, []);
 
@@ -490,6 +495,20 @@ export default function MapApp() {
             </button>
             <button className={`chip hidden md:inline-flex ${showMarkers ? "on" : ""}`} onClick={() => setShowMarkers(!showMarkers)}>
               사업장
+            </button>
+            {/* 로드뷰 — 사업장을 고르지 않아도 지도 어디든 찍어 거리 풍경을 본다 (2026-09-09 사용자 요청, 카카오맵·네이버지도의 거리뷰 버튼처럼) */}
+            <button
+              className={`chip ${rvPick ? "on" : ""}`}
+              onClick={() => setRvPick((v) => !v)}
+              title={rvPick ? "로드뷰 지점 선택 취소 (Esc)" : "로드뷰 — 지도에서 지점을 클릭해 거리 풍경 보기"}
+              aria-label="로드뷰"
+              aria-pressed={rvPick}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="4.5" r="2.5" />
+                <path d="M9 9.5h6l1.5 5.5H14v6h-4v-6H7.5z" />
+              </svg>
+              <span className="hidden sm:inline">로드뷰</span>
             </button>
             <button
               className={`chip relative ${updatesOpen ? "on" : ""}`}
