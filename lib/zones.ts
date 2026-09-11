@@ -110,6 +110,8 @@ export const correctionOf = S.correctionOf as (p: Project) => Correction | null;
 export const decorateStage = S.decorateStage as (p: Project) => string;
 /** 라벨·배지용 짧은 단계: 보정 결과 먼저("준공 2026-03"), 없으면 원자료 단계 */
 export const stageLabel = S.stageLabel as (p: Project) => string;
+/** 라벨·패널에 보여줄 최근 동향 — 진행 중인 사업장에 붙은 서울플랜+ 옛 취소·중단 동향은 null (lib/stage.mjs visibleNote) */
+export const visibleNote = S.visibleNote as (p: Project) => Project["note"];
 
 /** 사업구분의 바탕 유형 — "재개발(주택정비형)"·"재개발" 처럼 시도마다 표기가 달라 괄호를 뗀 값으로 비교 */
 export function kindBase(kind: string) {

@@ -6,7 +6,7 @@ import UpdatesPanel from "./UpdatesPanel";
 import {
   CATEGORY_COLOR, CATEGORY_ORDER, KIND_LIST, OLD_ZONE_YEAR, PHASE_COLOR, PHASE_DESC, PHASE_ORDER, PHASE_STAGES, SIDO_LIST, STAGE_COLOR, STAGE_DESC,
   TAG_LIST, correctionOf, decorateStage, kindMatches, kindShort, normName, phaseOf, projectTags, rawStage, shortLabel, stageGroup, stageLabel,
-  zoneCategory, zoneStatus, zoneYear,
+  visibleNote, zoneCategory, zoneStatus, zoneYear,
   type Phase, type StageGroup, type Tag, type ZoneCategory, type ZoneStatus,
 } from "@/lib/zones";
 import DetailPanel from "./DetailPanel";
@@ -269,7 +269,7 @@ export default function MapApp() {
   }, [zoneStatusByFid]);
   /* 사업장 동향 한 줄: 보정 결과(준공·착공 등)가 있으면 그것을 먼저, 없으면 빌드 시 뽑은 최근 고시·공고 키워드, 그것도 없으면 진행단계
      (2026-09-08: 라벨 "동작1 착공"이 후기처럼 읽히던 문제 — 원자료 단계는 패널 상세에만) */
-  const descOf = (p: Project) => (correctionOf(p) ? stageLabel(p) : (p.note?.kw ?? stageLabel(p)).replace(/\s*\([^)]*\)/g, "")); // 라벨은 괄호 설명("(연번부여)") 생략
+  const descOf = (p: Project) => (correctionOf(p) ? stageLabel(p) : (visibleNote(p)?.kw ?? stageLabel(p)).replace(/\s*\([^)]*\)/g, "")); // 라벨은 괄호 설명("(연번부여)") 생략. 옛 취소 동향은 visibleNote 가 거른다
   /* 목록·툴팁용: "준공 2026-03 (원자료 착공)" */
   const stageText = (p: Project) => {
     const c = correctionOf(p);

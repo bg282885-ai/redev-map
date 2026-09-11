@@ -1762,7 +1762,13 @@ export function applySeoulPlan(projects, zones, plan, prevZones, prevProjects, z
     // 서울플랜+ 단계가 원자료 단계보다 앞서(같거나 뒤 단계) 있거나 별도 트랙일 때만 최근 동향으로 쓴다 — 옛 단계(이전고시 사업장에 '추진위구성')로 라벨이 후퇴하지 않게
     const RANK = ["계획", "추진위", "조합", "시행", "관리처분", "공사", "완료"];
     const rankOf = (s) => RANK.indexOf(stageGroup(s));
-    const noteAllowed = (p) => T.track || isEnded || rankOf(stageNm) >= rankOf(rawStage(p.stage));
+    // 옛 취소·중단 기록이 진행 중인 사업장의 '최근 동향 [취소]'로 붙지 않게 한다 (2026-09-11: 아현1 공공재개발(구역지정 2026-05)에 2022년 재개발 취소,
+    //   북아현4(구역지정 2025-07)에 2023년 역세권 장기전세 취소). 기준은 표시 쪽 lib/stage.mjs visibleNote 와 같다:
+    //   취소·중단 동향은 그 사업장의 서울플랜+ 현재 단계가 더 최근이면서 취소가 아니면 붙이지 않고(staleEnded), 반대로 더 최근의 진행 단계가
+    //   나중에 붙을 때 기존 동향이 서울플랜+ 옛 취소·중단이면 지운다(아래 dropStaleEnded) — 기록 처리 순서와 무관하게 같은 결과
+    const staleEnded = (p) => isEnded && p.plan && !p.plan.ended && (p.plan.date ?? "") > cur;
+    const dropStaleEnded = (p) => { if (!isEnded && p.note?.src === "서울플랜+" && PLAN_ENDED.test(p.note.kw ?? "") && (p.note.date ?? "") < cur) p.note = null; };
+    const noteAllowed = (p) => !staleEnded(p) && (T.track || isEnded || rankOf(stageNm) >= rankOf(rawStage(p.stage)));
     const rawStage = (s) => (s ?? "").split(" · ")[0];
     // ① 같은 도형인 기존 구역
     const dup = baseZones.find(
@@ -1812,6 +1818,7 @@ export function applySeoulPlan(projects, zones, plan, prevZones, prevProjects, z
           (byZone.get(z.properties.fid) ?? byZone.set(z.properties.fid, []).get(z.properties.fid)).push(p);
           linked++;
         }
+        dropStaleEnded(p);
         const n = noteOf();
         if (n && noteAllowed(p) && (!p.note || (p.note.date ?? "") < cur)) p.note = n;
       }

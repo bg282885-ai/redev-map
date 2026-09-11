@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import type { GosiItem, Project, ProjectSummary, Selection, ZoneFeature } from "@/lib/types";
 import {
-  CATEGORY_COLOR, STAGE_COLOR, codeLabel, correctionOf, dongOf, fmtArea, guName, kindShort, ntfcDate, rawStage, stageGroup, stageLabel, zoneCategory,
+  CATEGORY_COLOR, STAGE_COLOR, codeLabel, correctionOf, dongOf, fmtArea, guName, kindShort, ntfcDate, rawStage, stageGroup, stageLabel, visibleNote, zoneCategory,
 } from "@/lib/zones";
 import * as links from "@/lib/links";
 
@@ -40,6 +40,7 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
   const [copied, setCopied] = useState(false);
 
   const zp = zone?.properties ?? null;
+  const note = project ? visibleNote(project) : null; // 진행 중 사업장에 붙은 서울플랜+ 옛 취소 동향은 숨김
   const cat = zp ? zoneCategory(zp.code) : null;
   const title = project?.name ?? zp?.name ?? "";
   const sido = project?.sido ?? zp?.sido ?? "서울";
@@ -185,15 +186,15 @@ export default function DetailPanel({ sel, zone, project, successor, zoneProject
               </span>
             )}
           </p>
-          {project?.note && (
-            <p className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-400" title={project.note.title ?? ""}>
-              최근 동향: <span className="font-semibold">{project.note.kw}</span> · {project.note.date.slice(0, 7)}
-              {project.note.url ? (
-                <a href={project.note.url} target="_blank" rel="noreferrer" className="ml-1 text-muted-2 underline hover:text-brand">
-                  {project.note.src === "서울플랜+" ? "서울플랜+ 사업현황" : `${project.note.src} 공고`}
+          {note && (
+            <p className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-400" title={note.title ?? ""}>
+              최근 동향: <span className="font-semibold">{note.kw}</span> · {note.date.slice(0, 7)}
+              {note.url ? (
+                <a href={note.url} target="_blank" rel="noreferrer" className="ml-1 text-muted-2 underline hover:text-brand">
+                  {note.src === "서울플랜+" ? "서울플랜+ 사업현황" : `${note.src} 공고`}
                 </a>
               ) : (
-                <span className="ml-1 text-muted-2">({project.note.src} 추진현황)</span>
+                <span className="ml-1 text-muted-2">({note.src} 추진현황)</span>
               )}
             </p>
           )}
